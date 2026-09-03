@@ -19,7 +19,7 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.EX30SensorLab">
 
-        <uses-library android:name="android.car" android:required="true" />
+        <uses-library android:name="android.car" android:required="false" />
 
         <meta-data
             android:name="com.google.android.gms.car.application"
