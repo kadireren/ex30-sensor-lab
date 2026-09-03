@@ -32,9 +32,10 @@ import com.kadireren.ex30sensorlab.model.SensorDefinition
 import com.kadireren.ex30sensorlab.model.SensorSample
 import com.kadireren.ex30sensorlab.model.SensorSource
 import com.kadireren.ex30sensorlab.obd.BluetoothElmTransport
+import com.kadireren.ex30sensorlab.obd.BluetoothObdDeviceScanner
 import com.kadireren.ex30sensorlab.obd.EcuContexts
 import com.kadireren.ex30sensorlab.obd.ElmProtocol
-import com.kadireren.ex30sensorlab.obd.ObdCatalog
+import com.kadireren.ex30sensorlab.obd.ObdDeviceEntry
 import com.kadireren.ex30sensorlab.obd.ObdPollingController
 import com.kadireren.ex30sensorlab.scanner.ScanProfileParser
 import com.kadireren.ex30sensorlab.scanner.ScannerController
@@ -45,6 +46,8 @@ import java.io.File
 import java.util.concurrent.Executors
 
 class MainActivity : Activity() {
+    private enum class ObdConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+
     private var car: Car? = null
     private var carPropertyManager: CarPropertyManager? = null
     private var vhalReader: AndroidVhalReader? = null
@@ -52,9 +55,17 @@ class MainActivity : Activity() {
     private var obdPolling: ObdPollingController? = null
     private var scanner: ScannerController? = null
     private var logger: SessionLogger? = null
+    private var deviceScanner: BluetoothObdDeviceScanner? = null
     private var safetyState = SafetyState()
     private var importedProfile: ScanProfile? = null
     private var scannerStatus: TextView? = null
+    private var obdStatusView: TextView? = null
+    private var obdConnectionState = ObdConnectionState.DISCONNECTED
+    private var obdDeviceName: String? = null
+    private var obdDeviceAddress: String? = null
+    private var obdAdapterId: String? = null
+    private var obdErrorMessage: String? = null
+    private var obdDeviceReturnAction: (() -> Unit)? = null
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -67,7 +78,7 @@ class MainActivity : Activity() {
     }
 
     override fun onDestroy() {
-        stopActiveScreen()
+        stopActiveScreen(disconnectObd = true)
         try { car?.disconnect() } catch (_: Exception) {}
         ioExecutor.shutdownNow()
         super.onDestroy()
@@ -103,9 +114,15 @@ class MainActivity : Activity() {
             setPadding(dp(28), dp(28), dp(28), dp(20))
         }
         cards.addView(menuCard("1", "AAOS Verileri", "14 doğrulanmış VHAL sensörü") { showAaos() }, weighted())
-        cards.addView(menuCard("2", "OBD Verileri", "Android-Vlink ile doğrudan okuma") { showObd() }, weighted(dp(18)))
+        cards.addView(menuCard("2", "OBD Verileri", "Bluetooth OBD adaptörü ile okuma") { showObd() }, weighted(dp(18)))
         cards.addView(menuCard("3", "OBD Scanner", "Salt-okunur aday ve DID taraması") { showScanner() }, weighted(dp(18)))
         root.addView(cards, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val obdRow = controlRow()
+        obdRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showHome() } })
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            obdRow.addView(actionButton("OBD bağlantısını kes") { disconnectObdConnection(); showHome() })
+        }
+        root.addView(obdRow)
         root.addView(label("Tarama yalnız araç sabitken çalışır", 16f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(16), 0, dp(20))
         })
@@ -151,24 +168,26 @@ class MainActivity : Activity() {
 
     private fun showObd() {
         stopActiveScreen()
-        val root = baseScreen("OBD Verileri", "○ Android-Vlink bağlı değil", true)
+        val root = baseScreen("OBD Verileri", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val adapter = SensorListAdapter(this)
         val controls = controlRow()
+        controls.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showObd() } })
         controls.addView(actionButton("Bağlan ve oku") {
-            status.text = "○ Android-Vlink bağlanıyor…"
+            if (obdConnectionState != ObdConnectionState.CONNECTED) {
+                toast("Önce bir OBD cihazı seçin")
+                showObdDevices { showObd() }
+                return@actionButton
+            }
+            status.text = "OBD okuma başlatılıyor…"
             logger?.close()
             logger = SessionLogger(this).also { it.start("obd") }
-            connectObd(status) {
-                obdPolling = ObdPollingController(requireNotNull(elmProtocol)).also { polling ->
-                    polling.start(onSample = { sample ->
-                        logger?.append(sample)
-                        runOnUiThread { adapter.update(sample) }
-                    }, onState = { text -> runOnUiThread { status.text = text } })
-                }
-            }
+            startObdPolling(status, adapter)
         })
         controls.addView(actionButton("Durdur") { obdPolling?.stop(); status.text = "OBD okuma durdu" })
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            controls.addView(actionButton("Bağlantıyı kes") { disconnectObdConnection(); status.text = obdScreenStatusText() })
+        }
         controls.addView(actionButton("Kayıtları paylaş") { shareLogs() })
         root.addView(controls)
         root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama", 13f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
@@ -191,22 +210,28 @@ class MainActivity : Activity() {
 
     private fun showScanner() {
         stopActiveScreen()
-        val root = baseScreen("OBD Scanner", "○ Güvenlik verisi bekleniyor", true)
+        val root = baseScreen("OBD Scanner", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         scannerStatus = status
         val eventRows = mutableListOf<String>()
         val eventAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, eventRows)
 
         val connectRow = controlRow()
-        connectRow.addView(actionButton("Android-Vlink bağla") {
+        connectRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showScanner() } })
+        connectRow.addView(actionButton("Bağlan") {
+            if (obdConnectionState != ObdConnectionState.CONNECTED) {
+                toast("Önce bir OBD cihazı seçin")
+                showObdDevices { showScanner() }
+                return@actionButton
+            }
             logger?.close()
             logger = SessionLogger(this).also { it.start("scanner") }
-            connectObd(status) {
-                scanner = ScannerController(requireNotNull(elmProtocol)) { safetyState }
-                status.text = safetyLabel()
-            }
+            attachScanner(status)
         })
         connectRow.addView(actionButton("Durdur") { scanner?.stop() })
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            connectRow.addView(actionButton("Bağlantıyı kes") { disconnectObdConnection(); status.text = obdScreenStatusText() })
+        }
         connectRow.addView(actionButton("Kayıtları paylaş") { shareLogs() })
         root.addView(connectRow)
 
@@ -253,7 +278,11 @@ class MainActivity : Activity() {
             vhalReader = AndroidVhalReader(manager) { powerMultiplier() }.also { reader ->
                 reader.start(onSample = {}, onSafety = {
                     safetyState = it
-                    runOnUiThread { if (elmProtocol == null) status.text = safetyLabel() }
+                    runOnUiThread {
+                        if (scanner == null) {
+                            status.text = if (obdConnectionState == ObdConnectionState.CONNECTED) safetyLabel() else obdScreenStatusText()
+                        }
+                    }
                 })
             }
         } else {
@@ -261,31 +290,231 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun connectObd(status: TextView, onConnected: () -> Unit) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_CONNECT), REQUEST_PERMISSIONS)
-            status.text = "Bluetooth izni gerekli"
-            return
+    private fun showObdDevices(returnTo: () -> Unit) {
+        stopScreenResources()
+        obdDeviceReturnAction = returnTo
+        val scanner = BluetoothObdDeviceScanner(this).also { deviceScanner = it }
+        val root = baseScreen("OBD Cihazları", "Bluetooth cihazlarını seçin", true)
+        val status = root.getChildAt(0).findViewWithTag<TextView>("status")
+        val devices = linkedMapOf<String, ObdDeviceEntry>()
+        val rows = mutableListOf<String>()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, rows)
+
+        fun refreshList() {
+            rows.clear()
+            devices.values.sortedWith(compareByDescending<ObdDeviceEntry> { it.bonded }.thenBy { it.name.lowercase() })
+                .forEach { entry ->
+                    val prefix = if (entry.bonded) "● Eşleşmiş" else "○ Keşfedildi"
+                    rows += "$prefix · ${entry.name} · ${entry.address}"
+                }
+            if (rows.isEmpty()) rows += "Henüz cihaz bulunamadı"
+            adapter.notifyDataSetChanged()
         }
+
+        fun loadBonded() {
+            if (!ensureBluetoothPermissions(status)) return
+            try {
+                scanner.bondedDevices().forEach { devices[it.address] = it }
+                refreshList()
+                status.text = "${devices.size} cihaz listelendi"
+            } catch (e: Exception) {
+                status.text = "Cihaz listesi alınamadı: ${e.message}"
+            }
+        }
+
+        val controls = controlRow()
+        var scanButton: Button? = null
+        scanButton = actionButton("Taramayı başlat") {
+            if (!ensureBluetoothPermissions(status)) return@actionButton
+            if (scanner.isScanning) {
+                scanner.stopDiscovery()
+                scanButton?.text = "Taramayı başlat"
+                status.text = "${devices.size} cihaz listelendi"
+                return@actionButton
+            }
+            scanButton?.text = "Taramayı durdur"
+            status.text = "Yakındaki Bluetooth cihazları taranıyor…"
+            try {
+                scanner.startDiscovery(
+                    onFound = { entry ->
+                        runOnUiThread {
+                            devices[entry.address] = entry
+                            refreshList()
+                            status.text = "Tarama sürüyor · ${devices.size} cihaz"
+                        }
+                    },
+                    onFinished = {
+                        runOnUiThread {
+                            scanButton?.text = "Taramayı başlat"
+                            status.text = "Tarama tamamlandı · ${devices.size} cihaz"
+                        }
+                    },
+                )
+            } catch (e: Exception) {
+                scanButton?.text = "Taramayı başlat"
+                status.text = "Tarama başlatılamadı: ${e.message}"
+            }
+        }
+        controls.addView(scanButton)
+        controls.addView(actionButton("Eşleşmiş cihazları yenile") { loadBonded() })
+        controls.addView(actionButton("Geri") {
+            scanner.stopDiscovery()
+            deviceScanner = null
+            returnTo()
+        })
+        root.addView(controls)
+        root.addView(label("Bağlanmak için bir cihaza dokunun", 13f, color(R.color.lab_text_secondary)).apply {
+            setPadding(dp(18), 0, 0, dp(6))
+        })
+        root.addView(ListView(this).apply {
+            this.adapter = adapter
+            dividerHeight = dp(8)
+            setPadding(dp(18), 0, dp(18), dp(12))
+            setOnItemClickListener { _, _, position, _ ->
+                val sorted = devices.values.sortedWith(
+                    compareByDescending<ObdDeviceEntry> { it.bonded }.thenBy { it.name.lowercase() },
+                )
+                if (position >= sorted.size) return@setOnItemClickListener
+                val entry = sorted[position]
+                connectObdToDevice(entry, status) {
+                    scanner.stopDiscovery()
+                    deviceScanner = null
+                    toast("OBD bağlantısı kuruldu")
+                    returnTo()
+                }
+            }
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+        loadBonded()
+    }
+
+    private fun connectObdToDevice(entry: ObdDeviceEntry, status: TextView, onConnected: () -> Unit = {}) {
+        if (!ensureBluetoothPermissions(status)) return
+        obdDeviceName = entry.name
+        obdDeviceAddress = entry.address
+        obdErrorMessage = null
+        setObdConnectionState(ObdConnectionState.CONNECTING)
+        status.text = "${entry.name} bağlanıyor…"
         ioExecutor.execute {
             try {
                 elmProtocol?.disconnect()
-                val protocol = ElmProtocol(BluetoothElmTransport(this)) { command, response ->
+                val protocol = ElmProtocol(BluetoothElmTransport(this@MainActivity)) { command, response ->
                     logger?.appendProtocol(command, response)
                 }
-                val id = protocol.connect("Android-Vlink")
+                runOnUiThread { status.text = "${entry.name} · ELM327 başlatılıyor…" }
+                val id = protocol.connect(entry.address)
                 elmProtocol = protocol
+                obdAdapterId = id.lineSequence().firstOrNull()?.trim().orEmpty().ifBlank { "ELM327" }
                 runOnUiThread {
-                    status.text = "● Bağlı: ${id.lineSequence().firstOrNull() ?: "ELM327"}"
+                    setObdConnectionState(ObdConnectionState.CONNECTED)
+                    status.text = "● Bağlı: ${entry.name} · $obdAdapterId"
                     onConnected()
                 }
             } catch (e: Exception) {
-                runOnUiThread { status.text = "Bağlantı hatası: ${e.message}" }
+                runOnUiThread {
+                    obdErrorMessage = e.message ?: "Bağlantı hatası"
+                    setObdConnectionState(ObdConnectionState.ERROR)
+                    status.text = "Bağlantı hatası: $obdErrorMessage"
+                    toast("OBD bağlantısı kurulamadı: $obdErrorMessage")
+                }
             }
         }
     }
 
-    private fun stopActiveScreen() {
+    private fun startObdPolling(status: TextView, adapter: SensorListAdapter) {
+        val protocol = elmProtocol
+        if (protocol == null || obdConnectionState != ObdConnectionState.CONNECTED) {
+            status.text = "OBD bağlı değil"
+            return
+        }
+        obdPolling?.close()
+        obdPolling = ObdPollingController(protocol).also { polling ->
+            polling.start(onSample = { sample ->
+                logger?.append(sample)
+                runOnUiThread { adapter.update(sample) }
+            }, onState = { text -> runOnUiThread { status.text = text } })
+        }
+    }
+
+    private fun attachScanner(status: TextView) {
+        val protocol = elmProtocol
+        if (protocol == null || obdConnectionState != ObdConnectionState.CONNECTED) {
+            status.text = "OBD bağlı değil"
+            return
+        }
+        scanner?.close()
+        scanner = ScannerController(protocol) { safetyState }
+        status.text = safetyLabel()
+    }
+
+    private fun disconnectObdConnection() {
+        obdPolling?.close()
+        obdPolling = null
+        scanner?.close()
+        scanner = null
+        try { elmProtocol?.disconnect() } catch (_: Exception) {}
+        elmProtocol = null
+        obdDeviceName = null
+        obdDeviceAddress = null
+        obdAdapterId = null
+        obdErrorMessage = null
+        setObdConnectionState(ObdConnectionState.DISCONNECTED)
+    }
+
+    private fun setObdConnectionState(state: ObdConnectionState) {
+        obdConnectionState = state
+        refreshObdIndicator()
+    }
+
+    private fun refreshObdIndicator() {
+        obdStatusView?.let { view ->
+            view.text = obdIndicatorText()
+            view.setTextColor(obdIndicatorColor())
+        }
+    }
+
+    private fun obdIndicatorText(): String = when (obdConnectionState) {
+        ObdConnectionState.DISCONNECTED -> "○ OBD"
+        ObdConnectionState.CONNECTING -> "◐ OBD"
+        ObdConnectionState.CONNECTED -> "● OBD"
+        ObdConnectionState.ERROR -> "✕ OBD"
+    }
+
+    private fun obdIndicatorColor(): Int = when (obdConnectionState) {
+        ObdConnectionState.CONNECTED -> color(R.color.lab_success)
+        ObdConnectionState.CONNECTING -> color(R.color.lab_warning)
+        ObdConnectionState.ERROR -> color(R.color.lab_error)
+        ObdConnectionState.DISCONNECTED -> color(R.color.lab_text_secondary)
+    }
+
+    private fun obdScreenStatusText(): String = when (obdConnectionState) {
+        ObdConnectionState.CONNECTED -> "● Bağlı: ${obdDeviceName ?: "OBD"} · ${obdAdapterId ?: "ELM327"}"
+        ObdConnectionState.CONNECTING -> "◐ ${obdDeviceName ?: "OBD"} bağlanıyor…"
+        ObdConnectionState.ERROR -> "Bağlantı hatası: ${obdErrorMessage ?: "bilinmiyor"}"
+        ObdConnectionState.DISCONNECTED -> "○ OBD bağlı değil"
+    }
+
+    private fun ensureBluetoothPermissions(status: TextView? = null): Boolean {
+        val missing = requiredBluetoothPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
+        if (missing.isEmpty()) return true
+        requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
+        status?.text = "Bluetooth izni gerekli"
+        toast("Bluetooth izni gerekli")
+        return false
+    }
+
+    private fun requiredBluetoothPermissions(): List<String> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return emptyList()
+        val permissions = mutableListOf(Manifest.permission.BLUETOOTH_CONNECT)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            permissions += Manifest.permission.BLUETOOTH_SCAN
+        }
+        return permissions
+    }
+
+    private fun stopScreenResources() {
+        deviceScanner?.stopDiscovery()
+        deviceScanner = null
         vhalReader?.stop()
         vhalReader = null
         obdPolling?.close()
@@ -294,9 +523,12 @@ class MainActivity : Activity() {
         scanner = null
         logger?.close()
         logger = null
-        try { elmProtocol?.disconnect() } catch (_: Exception) {}
-        elmProtocol = null
         scannerStatus = null
+    }
+
+    private fun stopActiveScreen(disconnectObd: Boolean = false) {
+        stopScreenResources()
+        if (disconnectObd) disconnectObdConnection()
     }
 
     private fun openProfile() {
@@ -367,6 +599,7 @@ class MainActivity : Activity() {
             Car.PERMISSION_CAR_INFO, Car.PERMISSION_ENERGY_PORTS, Car.PERMISSION_EXTERIOR_ENVIRONMENT,
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_CONNECT
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_SCAN
         val missing = permissions.distinct().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
     }
@@ -388,6 +621,11 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(14), dp(20), dp(14))
             if (back) addView(actionButton("‹ Ana menü") { showHome() })
             addView(label(title, 28f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label(obdIndicatorText(), 14f, obdIndicatorColor()).apply {
+                tag = "obd_indicator"
+                setPadding(dp(12), 0, dp(12), 0)
+                obdStatusView = this
+            })
             addView(label(status, 15f, color(R.color.lab_success)).apply { tag = "status" })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
     }

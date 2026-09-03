@@ -50,7 +50,7 @@ class ElmProtocolTest {
         var connectCount = 0
         private var timedOut = false
         override var isConnected = false
-        override fun connect(deviceName: String) { isConnected = true; connectCount++ }
+        override fun connect(deviceIdentifier: String) { isConnected = true; connectCount++ }
         override fun send(command: String, timeoutMs: Long): String {
             commands += command
             if (command == timeoutCommand && !timedOut) {

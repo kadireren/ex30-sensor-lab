@@ -10,11 +10,11 @@ class ElmProtocol(
     private var initialized = false
     private var currentEcu: EcuContext? = null
     private var currentProtocol: Int? = null
-    private var connectedDeviceName: String? = null
+    private var connectedDeviceId: String? = null
 
-    fun connect(deviceName: String = "Android-Vlink"): String {
-        transport.connect(deviceName)
-        connectedDeviceName = deviceName
+    fun connect(deviceIdentifier: String = "Android-Vlink"): String {
+        transport.connect(deviceIdentifier)
+        connectedDeviceId = deviceIdentifier
         return try {
             val adapterId = send("ATI", 2_500L)
             initialize()
@@ -65,7 +65,7 @@ class ElmProtocol(
     }
 
     fun disconnect() {
-        connectedDeviceName = null
+        connectedDeviceId = null
         transport.close()
         initialized = false
         currentEcu = null
@@ -73,12 +73,12 @@ class ElmProtocol(
     }
 
     private fun reconnectAfterTimeout(ecu: EcuContext?) {
-        val deviceName = connectedDeviceName ?: throw IllegalStateException("ELM bağlantısı kapatıldı")
+        val deviceId = connectedDeviceId ?: throw IllegalStateException("ELM bağlantısı kapatıldı")
         transport.close()
         initialized = false
         currentEcu = null
         currentProtocol = null
-        transport.connect(deviceName)
+        transport.connect(deviceId)
         initialize()
         if (ecu != null) switchEcu(ecu)
     }

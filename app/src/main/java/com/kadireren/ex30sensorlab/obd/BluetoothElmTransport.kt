@@ -18,18 +18,33 @@ class BluetoothElmTransport(context: Context) : ElmTransport {
 
     @SuppressLint("MissingPermission")
     @Synchronized
-    override fun connect(deviceName: String) {
+    override fun connect(deviceIdentifier: String) {
         close()
         val bluetoothAdapter = adapter ?: error("Bluetooth adaptörü bulunamadı")
         check(bluetoothAdapter.isEnabled) { "Bluetooth kapalı" }
-        val device = bluetoothAdapter.bondedDevices.firstOrNull {
-            it.name.equals(deviceName, ignoreCase = true) || it.name?.contains("Vlink", ignoreCase = true) == true
-        } ?: error("Eşleştirilmiş Android-Vlink bulunamadı")
+        val device = resolveDevice(bluetoothAdapter, deviceIdentifier)
+            ?: error("OBD cihazı bulunamadı: $deviceIdentifier")
 
         socket = connectSocket(device, secure = true) ?: connectSocket(device, secure = false)
         if (socket?.isConnected != true) {
             close()
-            throw IOException("Android-Vlink bağlantısı kurulamadı; başka uygulama adaptörü kullanıyor olabilir")
+            throw IOException("OBD bağlantısı kurulamadı; başka uygulama adaptörü kullanıyor olabilir")
+        }
+    }
+
+    @SuppressLint("MissingPermission")
+    internal fun resolveDevice(bluetoothAdapter: android.bluetooth.BluetoothAdapter, identifier: String): BluetoothDevice? {
+        if (MAC_ADDRESS.matches(identifier)) {
+            return try {
+                bluetoothAdapter.getRemoteDevice(identifier)
+            } catch (_: IllegalArgumentException) {
+                null
+            }
+        }
+        return bluetoothAdapter.bondedDevices.firstOrNull {
+            it.name.equals(identifier, ignoreCase = true)
+        } ?: bluetoothAdapter.bondedDevices.firstOrNull {
+            it.name?.contains(identifier, ignoreCase = true) == true
         }
     }
 
@@ -82,5 +97,6 @@ class BluetoothElmTransport(context: Context) : ElmTransport {
 
     companion object {
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
+        private val MAC_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
     }
 }

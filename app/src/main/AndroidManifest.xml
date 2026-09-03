@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <uses-feature android:name="android.hardware.type.automotive" android:required="true" />
+    <uses-feature android:name="android.hardware.type.automotive" android:required="false" />
     <uses-feature android:name="android.hardware.bluetooth" android:required="true" />
 
     <uses-permission android:name="android.car.permission.CAR_SPEED" />
@@ -12,6 +12,7 @@
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_ADMIN" android:maxSdkVersion="30" />
     <uses-permission android:name="android.permission.BLUETOOTH_CONNECT" />
+    <uses-permission android:name="android.permission.BLUETOOTH_SCAN" android:usesPermissionFlags="neverForLocation" />
 
     <application
         android:allowBackup="false"
@@ -20,10 +21,6 @@
         android:theme="@style/Theme.EX30SensorLab">
 
         <uses-library android:name="android.car" android:required="false" />
-
-        <meta-data
-            android:name="com.google.android.gms.car.application"
-            android:resource="@xml/automotive_app_desc" />
 
         <activity
             android:name=".MainActivity"
