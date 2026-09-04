@@ -3,11 +3,13 @@ package com.kadireren.ex30sensorlab.obd
 import java.util.Locale
 
 object ObdDecoders {
+    fun cleanHex(raw: String): String = raw
+        .replace(Regex("[0-9A-Fa-f]:"), "")
+        .replace(Regex("[^0-9A-Fa-f]"), "")
+        .uppercase(Locale.US)
+
     fun extractData(raw: String, did: String): String? {
-        val clean = raw
-            .replace(Regex("[0-9A-Fa-f]:"), "")
-            .replace(Regex("[^0-9A-Fa-f]"), "")
-            .uppercase(Locale.US)
+        val clean = cleanHex(raw)
         val marker = "62${did.take(4).uppercase(Locale.US)}"
         val index = clean.indexOf(marker)
         return if (index < 0) null else clean.substring(index + marker.length)
@@ -27,7 +29,7 @@ object ObdDecoders {
                 "hv_temp_avg" -> f("%.2f °C", data.take(4).toInt(16) / 100f - 50f)
                 "hv_temp_max" -> f("%.2f °C · sensör %d", data.substring(2, 6).toInt(16) / 100f - 50f, data.take(2).toInt(16))
                 "hv_soh" -> f("%.2f %%", data.take(8).toLong(16) * 0.01f)
-                "odometer" -> f("%d km", data.take(6).toLong(16))
+                "odometer", "odometer_11bit" -> f("%d km", data.take(6).toLong(16))
                 "soc_display" -> f("%d %%", data.take(2).toInt(16))
                 "vehicle_speed", "wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr" -> f("%d km/h", data.take(2).toInt(16))
                 "brake_fl", "brake_fr", "brake_rl", "brake_rr" -> f("%.2f bar", data.take(4).toInt(16) / 100f)
@@ -39,7 +41,7 @@ object ObdDecoders {
     }
 
     fun decodeBrakeMulti(raw: String): String? {
-        val clean = raw.replace(Regex("[^0-9A-Fa-f]"), "").uppercase(Locale.US)
+        val clean = cleanHex(raw)
         val match = Regex("62FD00([0-9A-F]{4}).*?FD01([0-9A-F]{4}).*?FD02([0-9A-F]{4}).*?FD03([0-9A-F]{4})").find(clean) ?: return null
         val values = match.groupValues.drop(1).map { it.toInt(16) }
         if (values.any { it > 0x4000 }) return null
@@ -58,14 +60,21 @@ object ObdDecoders {
         }
     }
 
+    fun hasEcuResponse(raw: String): Boolean {
+        val upper = raw.uppercase(Locale.US)
+        if (upper.contains("NO DATA") || upper.contains("UNABLE TO CONNECT") || upper.contains("BUS ERROR")) return false
+        val clean = cleanHex(raw)
+        return clean.contains("62") || clean.contains("7F")
+    }
+
     fun isPositiveResponse(raw: String, did: String): Boolean =
-        raw.replace(Regex("[^0-9A-Fa-f]"), "").uppercase(Locale.US).contains("62${did.take(4).uppercase(Locale.US)}")
+        cleanHex(raw).contains("62${did.take(4).uppercase(Locale.US)}")
 
     fun isNegativeResponse(raw: String): Boolean =
-        Regex("7F(22|01)").containsMatchIn(raw.replace(" ", "").uppercase(Locale.US))
+        Regex("7F(22|01)").containsMatchIn(cleanHex(raw))
 
     fun negativeResponseCode(raw: String): String? {
-        val clean = raw.replace(Regex("[^0-9A-Fa-f]"), "").uppercase(Locale.US)
+        val clean = cleanHex(raw)
         return Regex("7F(?:22|01)([0-9A-F]{2})").find(clean)?.groupValues?.get(1)
     }
 

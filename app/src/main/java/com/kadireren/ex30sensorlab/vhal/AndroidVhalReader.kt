@@ -115,7 +115,7 @@ class AndroidVhalReader(
 
     private fun sensorDefinition(def: VhalDefinition) = SensorDefinition(
         key = def.name,
-        name = def.name,
+        name = def.label,
         source = SensorSource.VHAL,
         identifier = "0x%08X".format(Locale.US, def.id),
         unit = def.unit,

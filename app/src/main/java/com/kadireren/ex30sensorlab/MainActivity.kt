@@ -39,9 +39,11 @@ import com.kadireren.ex30sensorlab.obd.ObdDeviceEntry
 import com.kadireren.ex30sensorlab.obd.ObdPollingController
 import com.kadireren.ex30sensorlab.scanner.ScanProfileParser
 import com.kadireren.ex30sensorlab.scanner.ScannerController
+import com.kadireren.ex30sensorlab.ui.DriveSensorAdapter
 import com.kadireren.ex30sensorlab.ui.SensorListAdapter
 import com.kadireren.ex30sensorlab.vhal.AndroidVhalReader
 import com.kadireren.ex30sensorlab.vhal.SafetyState
+import com.kadireren.ex30sensorlab.vhal.VhalCatalog
 import java.io.File
 import java.util.concurrent.Executors
 
@@ -66,6 +68,12 @@ class MainActivity : Activity() {
     private var obdAdapterId: String? = null
     private var obdErrorMessage: String? = null
     private var obdDeviceReturnAction: (() -> Unit)? = null
+    private var driveAdapter: DriveSensorAdapter? = null
+    private var drivePageLabel: TextView? = null
+    private var driveSourceVhalButton: Button? = null
+    private var driveSourceObdButton: Button? = null
+    private var driveSource = SensorSource.VHAL
+    private val drivePages = mutableMapOf(SensorSource.VHAL to 0, SensorSource.OBD to 0)
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -113,10 +121,17 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(28), dp(28), dp(28), dp(20))
         }
-        cards.addView(menuCard("1", "AAOS Verileri", "14 doğrulanmış VHAL sensörü") { showAaos() }, weighted())
+        cards.addView(menuCard("1", "AAOS Verileri", "${VhalCatalog.entries.size} VHAL sensörü") { showAaos() }, weighted())
         cards.addView(menuCard("2", "OBD Verileri", "Bluetooth OBD adaptörü ile okuma") { showObd() }, weighted(dp(18)))
         cards.addView(menuCard("3", "OBD Scanner", "Salt-okunur aday ve DID taraması") { showScanner() }, weighted(dp(18)))
         root.addView(cards, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val row2 = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(dp(28), 0, dp(28), dp(8))
+        }
+        row2.addView(menuCard("4", "Sürüş Görünümü", "Büyük yazı · sayfalı okuma") { showDriveView() }, weighted())
+        root.addView(row2)
         val obdRow = controlRow()
         obdRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showHome() } })
         if (obdConnectionState == ObdConnectionState.CONNECTED) {
@@ -163,6 +178,134 @@ class MainActivity : Activity() {
                 logger?.append(sample)
                 runOnUiThread { adapter.update(sample) }
             }, onSafety = { safetyState = it })
+        }
+    }
+
+    private fun showDriveView() {
+        stopScreenResources()
+        driveSource = SensorSource.VHAL
+        drivePages[SensorSource.VHAL] = 0
+        drivePages[SensorSource.OBD] = 0
+        val adapter = DriveSensorAdapter(this, SensorSource.VHAL).also { driveAdapter = it }
+        val root = baseScreen("Sürüş Görünümü", "Canlı sensör değerleri", true)
+        val status = root.getChildAt(0).findViewWithTag<TextView>("status")
+        val sourceRow = controlRow().apply { setPadding(dp(18), dp(6), dp(18), dp(4)) }
+        driveSourceVhalButton = actionButton("VHAL") { selectDriveSource(SensorSource.VHAL, adapter, status) }
+        driveSourceObdButton = actionButton("OBD") { selectDriveSource(SensorSource.OBD, adapter, status) }
+        sourceRow.addView(driveSourceVhalButton)
+        sourceRow.addView(driveSourceObdButton)
+        root.addView(sourceRow)
+        drivePageLabel = label("VHAL · Sayfa 1 / 1", 16f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+            setPadding(0, dp(4), 0, dp(4))
+        }
+        root.addView(drivePageLabel)
+        root.addView(ListView(this).apply {
+            dividerHeight = dp(12)
+            setPadding(dp(24), dp(8), dp(24), dp(8))
+            clipToPadding = false
+            this.adapter = adapter
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        val nav = controlRow()
+        nav.addView(actionButton("Önceki") { changeDrivePage(-1, adapter, status) })
+        nav.addView(actionButton("Sonraki") { changeDrivePage(1, adapter, status) })
+        root.addView(nav)
+        setContentView(root)
+        refreshDrivePage(adapter, status)
+
+        logger = SessionLogger(this).also { it.start("drive") }
+        val manager = carPropertyManager
+        if (manager != null) {
+            vhalReader = AndroidVhalReader(manager) { powerMultiplier() }.also { reader ->
+                reader.start(onSample = { sample ->
+                    logger?.append(sample)
+                    runOnUiThread {
+                        adapter.update(sample)
+                        if (driveSource == SensorSource.VHAL) refreshDrivePage(adapter, status)
+                    }
+                }, onSafety = { safetyState = it })
+            }
+        }
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            startDriveObdPolling(status, adapter)
+        } else if (manager == null) {
+            status.text = "VHAL ve OBD verisi yok"
+        }
+    }
+
+    private fun selectDriveSource(source: SensorSource, adapter: DriveSensorAdapter, status: TextView?) {
+        if (driveSource == source) return
+        drivePages[driveSource] = adapter.page
+        driveSource = source
+        adapter.sourceFilter = source
+        adapter.page = drivePages[source] ?: 0
+        refreshDrivePage(adapter, status)
+        adapter.notifyDataSetChanged()
+    }
+
+    private fun changeDrivePage(delta: Int, adapter: DriveSensorAdapter, status: TextView?) {
+        val currentPage = drivePages[driveSource] ?: 0
+        val next = (currentPage + delta).coerceIn(0, adapter.pageCount() - 1)
+        if (next == currentPage) return
+        drivePages[driveSource] = next
+        adapter.page = next
+        adapter.notifyDataSetChanged()
+        refreshDrivePage(adapter, status)
+    }
+
+    private fun refreshDrivePage(adapter: DriveSensorAdapter, status: TextView?) {
+        adapter.page = (drivePages[driveSource] ?: 0).coerceIn(0, adapter.pageCount() - 1)
+        drivePages[driveSource] = adapter.page
+        val sourceLabel = if (driveSource == SensorSource.VHAL) "VHAL" else "OBD"
+        drivePageLabel?.text = "$sourceLabel · Sayfa ${adapter.page + 1} / ${adapter.pageCount()}"
+        updateDriveSourceButtons()
+        status?.text = driveStatusText()
+    }
+
+    private fun driveStatusText(): String {
+        val vhalReady = carPropertyManager != null
+        val obdReady = obdConnectionState == ObdConnectionState.CONNECTED
+        return when {
+            vhalReady && obdReady -> "VHAL + OBD aktif"
+            vhalReady -> "VHAL aktif · OBD bağlı değil"
+            obdReady -> "OBD aktif · VHAL yok"
+            else -> "Veri kaynağı bekleniyor"
+        }
+    }
+
+    private fun updateDriveSourceButtons() {
+        val active = color(R.color.lab_accent)
+        val inactive = color(R.color.lab_surface_alt)
+        driveSourceVhalButton?.background = rounded(
+            if (driveSource == SensorSource.VHAL) active else inactive,
+            color(R.color.lab_accent),
+            dp(10),
+        )
+        driveSourceObdButton?.background = rounded(
+            if (driveSource == SensorSource.OBD) active else inactive,
+            color(R.color.lab_accent),
+            dp(10),
+        )
+    }
+
+    private fun startDriveObdPolling(status: TextView, adapter: DriveSensorAdapter) {
+        val protocol = elmProtocol
+        if (protocol == null || obdConnectionState != ObdConnectionState.CONNECTED) {
+            status.text = "OBD bağlı değil"
+            return
+        }
+        obdPolling?.close()
+        obdPolling = ObdPollingController(protocol).also { polling ->
+            polling.start(onSample = { sample ->
+                logger?.append(sample)
+                runOnUiThread {
+                    adapter.update(sample)
+                    if (driveSource == SensorSource.OBD) refreshDrivePage(adapter, status)
+                }
+            }, onState = { text ->
+                runOnUiThread {
+                    if (driveSource == SensorSource.OBD) status.text = text else status.text = driveStatusText()
+                }
+            })
         }
     }
 
@@ -214,7 +357,7 @@ class MainActivity : Activity() {
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         scannerStatus = status
         val eventRows = mutableListOf<String>()
-        val eventAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, eventRows)
+        val eventAdapter = themedStringAdapter(eventRows)
 
         val connectRow = controlRow()
         connectRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showScanner() } })
@@ -298,7 +441,7 @@ class MainActivity : Activity() {
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val devices = linkedMapOf<String, ObdDeviceEntry>()
         val rows = mutableListOf<String>()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, rows)
+        val adapter = themedStringAdapter(rows)
 
         fun refreshList() {
             rows.clear()
@@ -628,6 +771,19 @@ class MainActivity : Activity() {
             })
             addView(label(status, 15f, color(R.color.lab_success)).apply { tag = "status" })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
+    }
+
+    private fun themedStringAdapter(items: MutableList<String>): ArrayAdapter<String> = object : ArrayAdapter<String>(
+        this, android.R.layout.simple_list_item_1, items,
+    ) {
+        override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+            val view = super.getView(position, convertView, parent) as TextView
+            view.setTextColor(color(R.color.lab_text))
+            view.setBackgroundColor(color(R.color.lab_surface))
+            view.setPadding(dp(16), dp(14), dp(16), dp(14))
+            view.textSize = 15f
+            return view
+        }
     }
 
     private fun menuCard(number: String, title: String, subtitle: String, click: () -> Unit): View = LinearLayout(this).apply {

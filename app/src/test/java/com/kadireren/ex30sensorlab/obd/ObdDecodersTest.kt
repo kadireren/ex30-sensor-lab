@@ -1,6 +1,7 @@
 package com.kadireren.ex30sensorlab.obd
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -20,6 +21,16 @@ class ObdDecodersTest {
     @Test fun decodesMultiframeBrakeAndRejectsGarbage() {
         assertEquals("10.00 bar", ObdDecoders.decodeBrakeMulti("0: 62 FD00 03E8 FD01 03E8 1: FD02 03E8 FD03 03E8"))
         assertNull(ObdDecoders.decodeBrakeMulti("62FD00FFFFFD0103E8FD0203E8FD0303E8"))
+    }
+
+    @Test fun ignoresNoDataForEcuResponseDetection() {
+        assertFalse(ObdDecoders.hasEcuResponse("NO DATA"))
+        assertTrue(ObdDecoders.hasEcuResponse("7F2231"))
+        assertTrue(ObdDecoders.hasEcuResponse("62F40D00"))
+    }
+
+    @Test fun decodesOdometerOnGatewayLane() {
+        assertEquals("2368 km", ObdDecoders.decode("odometer_11bit", "DD01", "62DD01000940"))
     }
 
     @Test fun derivesSignedPower() {

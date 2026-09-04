@@ -10,6 +10,7 @@ object EcuContexts {
     val ECU_D = EcuContext("ECU-D", 7, "D01650", "1D", "1ECA0E80", "1DD01650")
     val ECU_E = EcuContext("ECU-E", 7, "D01701", "1D", "1EE02E80", "1DD01701")
     val ECU_F = EcuContext("ECU-F", 7, "D01637", "1D", "1EC6EE80", "1DD01637")
+    val GATEWAY_11BIT = EcuContext("11-bit Gateway", 6, "7E3", "", "", "")
 
     val known = listOf(BECM, VCFRONT, ECU_D, ECU_E, ECU_F)
 
@@ -29,6 +30,7 @@ object ObdCatalog {
         p("hv_temp_max", "HV batarya maksimum sıcaklığı", "4945", "°C", EcuContexts.BECM, 0.2f),
         p("hv_soh", "HV batarya SOH", "496D", "%", EcuContexts.BECM, 0.2f),
         p("odometer", "Toplam kilometre", "DD01", "km", EcuContexts.BECM, 0.2f),
+        p("odometer_11bit", "Toplam kilometre (11-bit)", "DD01", "km", EcuContexts.GATEWAY_11BIT, 0.2f),
         p("soc_display", "Gösterge SOC", "D901", "%", EcuContexts.VCFRONT, 0.2f),
         p("vehicle_speed", "Araç hızı", "F40D", "km/h", EcuContexts.ECU_E, 5f),
         p("wheel_fl", "Teker hızı ön sol", "2B06", "km/h", EcuContexts.ECU_E, 2f),
@@ -49,7 +51,8 @@ object ObdCatalog {
         candidate("413A", EcuContexts.VCFRONT),
         *listOf("4A28", "4A29", "4A30", "4A31", "4A32", "4A33", "4A34").map { candidate(it, EcuContexts.VCFRONT) }.toTypedArray(),
         *listOf("E300", "E301", "E303", "E304", "E306", "E312", "EE9A").map { candidate(it, EcuContexts.ECU_F) }.toTypedArray(),
-        candidate("2B11", EcuContexts.ECU_E), candidate("FEE7", EcuContexts.ECU_E),
+        candidate("2B11", EcuContexts.ECU_E), candidate("2B04", EcuContexts.ECU_E),
+        candidate("2B05", EcuContexts.ECU_E), candidate("FEE7", EcuContexts.ECU_E),
         *listOf("EE19", "EE1A", "EE1B", "EE06").map { candidate(it, EcuContexts.ECU_D) }.toTypedArray(),
     )
 

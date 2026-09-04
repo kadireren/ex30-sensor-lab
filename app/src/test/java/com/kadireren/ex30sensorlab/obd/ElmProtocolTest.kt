@@ -9,12 +9,16 @@ class ElmProtocolTest {
         val transport = FakeTransport()
         val protocol = ElmProtocol(transport)
         protocol.connect()
-        protocol.query(EcuContexts.BECM, "224801")
         assertEquals(
-            ElmProtocol.INIT_COMMANDS + listOf("ATSP7", "ATSHD01635", "ATCP1D", "ATCRA1EC6AE80", "ATFCSH1DD01635", "ATFCSD300000", "ATFCSM1", "224801"),
+            ElmProtocol.INIT_COMMANDS + listOf(
+                "ATSP7", "ATSHD01635", "ATCP1D", "ATCRA1EC6AE80", "ATFCSH1DD01635", "ATFCSD300000", "ATFCSM1",
+                "224801", "22491B",
+            ),
             transport.commands.drop(1),
         )
+        protocol.query(EcuContexts.BECM, "224801")
         assertEquals(1, transport.commands.count { it == "ATSP7" })
+        assertEquals(2, transport.commands.count { it == "224801" })
     }
 
     @Test(expected = IllegalArgumentException::class)
@@ -25,14 +29,14 @@ class ElmProtocolTest {
     }
 
     @Test fun reconnectsOnceAfterTimeoutAndRestoresEcuContext() {
-        val transport = FakeTransport(timeoutCommand = "224801")
+        val transport = FakeTransport(timeoutCommand = "224802")
         val protocol = ElmProtocol(transport)
         protocol.connect()
 
-        assertEquals("624801A73A", protocol.query(EcuContexts.BECM, "224801"))
+        assertEquals("6248024852", protocol.query(EcuContexts.BECM, "224802"))
         assertEquals(2, transport.connectCount)
-        assertEquals(2, transport.commands.count { it == "ATSHD01635" })
-        assertEquals(2, transport.commands.count { it == "224801" })
+        assertEquals(3, transport.commands.count { it == "ATSHD01635" })
+        assertEquals(2, transport.commands.count { it == "224802" })
     }
 
     @Test fun tracesCommandsAndRedactsAtLoggerBoundary() {
@@ -60,6 +64,8 @@ class ElmProtocolTest {
             return when (command) {
                 "ATI" -> "ELM327 v2.3"
                 "224801" -> "624801A73A"
+                "224802" -> "6248024852"
+                "22491B" -> "62491B1FD1"
                 "22F190" -> "62F190SECRET"
                 else -> "OK"
             }

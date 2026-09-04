@@ -3,6 +3,10 @@
         <item name="android:fontFamily">sans</item>
         <item name="android:windowActionModeOverlay">true</item>
         <item name="android:colorAccent">@color/lab_accent</item>
+        <item name="android:colorBackground">@color/lab_background</item>
+        <item name="android:windowBackground">@color/lab_background</item>
+        <item name="android:textColorPrimary">@color/lab_text</item>
+        <item name="android:textColorSecondary">@color/lab_text_secondary</item>
         <item name="android:navigationBarColor">@color/lab_background</item>
         <item name="android:statusBarColor">@color/lab_background</item>
         <item name="android:windowLightStatusBar">false</item>

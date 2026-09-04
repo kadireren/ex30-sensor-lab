@@ -18,6 +18,7 @@ class ElmProtocol(
         return try {
             val adapterId = send("ATI", 2_500L)
             initialize()
+            verifyBecmLink()
             adapterId
         } catch (e: Exception) {
             disconnect()
@@ -72,6 +73,18 @@ class ElmProtocol(
         currentProtocol = null
     }
 
+    private fun verifyBecmLink() {
+        switchEcu(EcuContexts.BECM)
+        for (command in BECM_LINK_TESTS) {
+            val response = send(command)
+            val did = command.removePrefix("22")
+            check(!isHardError(response) && ObdDecoders.isPositiveResponse(response, did)) {
+                "ECU bağlantı testi başarısız $command: $response"
+            }
+        }
+        currentEcu = null
+    }
+
     private fun reconnectAfterTimeout(ecu: EcuContext?) {
         val deviceId = connectedDeviceId ?: throw IllegalStateException("ELM bağlantısı kapatıldı")
         transport.close()
@@ -91,7 +104,8 @@ class ElmProtocol(
     }
 
     companion object {
-        val INIT_COMMANDS = listOf("ATZ", "ATE0", "ATE0", "ATL0", "ATS0", "ATH0", "ATM0", "ATAT1")
+        val INIT_COMMANDS = listOf("ATZ", "ATE0", "ATE0", "ATL0", "ATS0", "ATH1", "ATM0", "ATAT1")
+        val BECM_LINK_TESTS = listOf("224801", "22491B")
 
         fun buildSwitchCommands(currentProtocol: Int?, ecu: EcuContext): List<String> {
             val commands = mutableListOf<String>()
