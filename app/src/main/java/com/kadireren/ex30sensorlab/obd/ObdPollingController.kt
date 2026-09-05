@@ -37,15 +37,12 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
                     SystemClock.sleep(10L)
                     continue
                 }
-                val batch = due
-                    .groupBy { it.ecu?.name ?: "ELM327" }
-                    .maxByOrNull { (_, pids) -> pids.maxOf { it.targetHz } }
-                    ?.value
-                    ?.sortedByDescending { it.targetHz }
-                    ?: emptyList()
-                for (definition in batch) {
+                val dueByEcu = due.groupBy { it.ecu?.name ?: "ELM327" }
+                for ((_, batch) in dueByEcu.entries.sortedBy { it.key }) {
                     if (!running.get()) break
-                    queryOne(definition, onSample, onState)
+                    for (definition in batch.sortedByDescending { it.targetHz }) {
+                        queryOne(definition, onSample, onState)
+                    }
                 }
             }
             onState("OBD okuma durdu")

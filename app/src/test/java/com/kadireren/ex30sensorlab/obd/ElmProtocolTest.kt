@@ -43,7 +43,7 @@ class ElmProtocolTest {
     @Test fun reconnectsOnceAfterIoErrorAndRestoresEcuContext() {
         val transport = FakeTransport(ioErrorCommand = "224801")
         val protocol = ElmProtocol(transport)
-        protocol.connect()
+        protocol.connect(verifyLink = false)
 
         assertEquals("624801A73A", protocol.query(EcuContexts.BECM, "224801"))
         assertEquals(2, transport.connectCount)

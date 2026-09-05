@@ -110,15 +110,19 @@ object DriveSensorOrder {
 
     private val obdPriorities = mapOf(
         "vehicle_speed" to 1,
-        "hv_power" to 2,
-        "soc_display" to 3,
-        "hv_voltage" to 4,
-        "hv_current" to 5,
-        "odometer" to 6,
-        "brake_multi" to 7,
-        "hv_temp_avg" to 8,
-        "hv_temp_max" to 9,
-        "hv_soh" to 10,
+        "wheel_fl" to 2,
+        "wheel_fr" to 3,
+        "wheel_rl" to 4,
+        "wheel_rr" to 5,
+        "hv_power" to 6,
+        "soc_display" to 7,
+        "hv_voltage" to 8,
+        "hv_current" to 9,
+        "odometer" to 10,
+        "brake_multi" to 11,
+        "hv_temp_avg" to 12,
+        "hv_temp_max" to 13,
+        "hv_soh" to 14,
     )
 
     fun priority(key: String, source: SensorSource): Int = when (source) {

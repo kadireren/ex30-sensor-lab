@@ -12,13 +12,13 @@ class ElmProtocol(
     private var currentProtocol: Int? = null
     private var connectedDeviceId: String? = null
 
-    fun connect(deviceIdentifier: String = "Android-Vlink"): String {
+    fun connect(deviceIdentifier: String = "Android-Vlink", verifyLink: Boolean = true): String {
         transport.connect(deviceIdentifier)
         connectedDeviceId = deviceIdentifier
         return try {
             val adapterId = send("ATI", 2_500L)
             initialize()
-            verifyBecmLink()
+            if (verifyLink) verifyBecmLink()
             adapterId
         } catch (e: Exception) {
             disconnect()
@@ -71,6 +71,11 @@ class ElmProtocol(
         initialized = false
         currentEcu = null
         currentProtocol = null
+    }
+
+    fun verifyLink() {
+        check(initialized && transport.isConnected) { "ELM327 hazır değil" }
+        verifyBecmLink()
     }
 
     private fun verifyBecmLink() {
