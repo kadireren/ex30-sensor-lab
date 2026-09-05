@@ -24,6 +24,7 @@ import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -46,6 +47,7 @@ import com.kadireren.ex30sensorlab.ui.SensorListAdapter
 import com.kadireren.ex30sensorlab.vhal.AndroidVhalReader
 import com.kadireren.ex30sensorlab.vhal.SafetyState
 import com.kadireren.ex30sensorlab.vhal.VhalCatalog
+import com.kadireren.ex30sensorlab.vhal.VhalProbe
 import java.io.File
 import java.util.concurrent.Executors
 import kotlin.math.abs
@@ -65,6 +67,7 @@ class MainActivity : Activity() {
     private var safetyState = SafetyState()
     private var importedProfile: ScanProfile? = null
     private var scannerStatus: TextView? = null
+    private var scannerWorkflowView: TextView? = null
     private var obdStatusView: TextView? = null
     private var obdConnectionState = ObdConnectionState.DISCONNECTED
     private var obdDeviceName: String? = null
@@ -183,7 +186,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(28), dp(8), dp(28), dp(8))
         }
-        row2.addView(menuCard("3", "OBD Scanner", "Salt-okunur aday ve DID taraması") { showScanner() }, menuCardLayoutParams())
+        row2.addView(menuCard("3", "Sensör Keşfi", "AAOS + OBD adım adım rehber") { showScanner() }, menuCardLayoutParams())
         row2.addView(menuCard("4", "Sürüş Görünümü", "Büyük yazı · sayfalı okuma") { showDriveView() }, menuCardLayoutParams(dp(16)))
         root.addView(row2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val obdRow = controlRow()
@@ -410,76 +413,191 @@ class MainActivity : Activity() {
         stopActiveScreen()
         currentPage = Page.SCANNER
         driveStatusView = null
-        val root = baseScreen("OBD Scanner", obdScreenStatusText(), true)
+        val root = baseScreen("Sensör Keşfi", "AAOS + OBD adım adım rehber", true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         scannerStatus = status
         val eventRows = mutableListOf<String>()
         val eventAdapter = themedStringAdapter(eventRows)
 
-        val connectRow = controlRow()
-        connectRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showScanner() } })
-        connectRow.addView(actionButton("Bağlan") {
-            if (obdConnectionState != ObdConnectionState.CONNECTED) {
-                toast("Önce bir OBD cihazı seçin")
-                showObdDevices { showScanner() }
-                return@actionButton
+        fun refreshWorkflow() {
+            scannerWorkflowView?.text = buildScannerWorkflowText()
+            status.text = when {
+                obdConnectionState == ObdConnectionState.CONNECTED && safetyState.scannerAllowed -> "● Keşif için hazır"
+                obdConnectionState == ObdConnectionState.CONNECTED -> safetyLabel()
+                else -> obdScreenStatusText()
             }
-            logger?.close()
-            logger = SessionLogger(this).also { it.start("scanner") }
-            attachScanner(status)
+        }
+
+        fun ensureScannerReady(): Boolean {
+            if (obdConnectionState != ObdConnectionState.CONNECTED) {
+                toast("Önce OBD adaptörüne bağlanın")
+                showObdDevices {
+                    showScanner()
+                }
+                return false
+            }
+            if (scanner == null) {
+                logger?.close()
+                logger = SessionLogger(this).also { it.start("scanner") }
+                attachScanner(status)
+            }
+            if (!safetyState.scannerAllowed) {
+                showScrollableHelpDialog(
+                    "Tarama şu an güvenli değil",
+                    "${safetyState.denialReason()}\n\nOBD taraması yalnızca kontak READY/ON, park freni aktif ve hız ~0 iken yapılır.",
+                )
+                return false
+            }
+            return true
+        }
+
+        fun runObdTask(name: String, block: () -> Unit) {
+            if (!ensureScannerReady()) return
+            pauseObdPollingForScanner()
+            eventRows.add(0, "▶ $name başlatıldı")
+            eventAdapter.notifyDataSetChanged()
+            block()
+            refreshWorkflow()
+        }
+
+        val guidePanel = ScrollView(this).apply {
+            isFillViewport = false
+            setPadding(0, 0, 0, dp(4))
+        }
+        val guideContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(18), dp(6), dp(18), dp(6))
+        }
+
+        guideContent.addView(scannerSectionCard(
+            "1 · AAOS sensör denemesi (OBD gerekmez)",
+            "Sanal motor sesi için önce araç ekranından gaz pedalı %, motor devri (RPM) ve anlık güç okunabilir mi bakılır. Uygulama tek dokunuşla dener ve sonucu açıklar.",
+            "AAOS sensörlerini dene",
+            "Gaz pedalı, ENGINE_RPM, anlık güç ve gösterge hızını bir kez okur; sanal ses için hangi kaynağı kullanacağını özetler.",
+        ) { runVhalProbeDialog { refreshWorkflow() } })
+
+        scannerWorkflowView = label(buildScannerWorkflowText(), 15f, color(R.color.lab_text_secondary)).apply {
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            background = rounded(color(R.color.lab_surface), color(R.color.lab_accent), dp(12))
+        }
+        guideContent.addView(scannerWorkflowView)
+
+        guideContent.addView(scannerSectionCard(
+            "2 · OBD ile yeni veri keşfi",
+            "Adaptör bağlandıktan sonra aşağıdaki adımları sırayla izleyin. «Otomatik keşif» bilinen aday DID'leri izler; motor sinyalleri için ayrı tarama ECU-E aralığını tarar.",
+            "OBD adaptörüne bağlan",
+            "Bluetooth cihaz listesini açar. Bağlantı kurulunca scanner otomatik hazırlanır.",
+        ) {
+            showObdDevices {
+                if (obdConnectionState == ObdConnectionState.CONNECTED) {
+                    logger?.close()
+                    logger = SessionLogger(this).also { it.start("scanner") }
+                    attachScanner(status)
+                }
+                refreshWorkflow()
+                showScanner()
+            }
         })
-        connectRow.addView(actionButton("Durdur") {
+
+        guideContent.addView(scannerActionRow(
+            "Otomatik OBD keşfini başlat",
+            "Güvenlik koşulları uygunsa bilinen aday DID listesini izlemeye başlar. Sonuçlar alttaki olay günlüğünde görünür.",
+        ) {
+            runObdTask("Otomatik OBD keşfi") {
+                scanner?.watchCandidates(eventSink(eventRows, eventAdapter), scannerStateSink(status))
+                    ?: toast("Scanner hazır değil")
+            }
+        })
+
+        guideContent.addView(scannerActionRow(
+            "Motor / gaz sinyali taraması (ECU-E 2B00–2B20)",
+            "Sanal motor sesi adayları: 2B04, 2B05, 2B11, FEE7 civarı. Park halinde ECU-E üzerinde kısa DID aralığı tarar.",
+        ) {
+            runObdTask("Motor DID taraması") {
+                scanner?.scanDidPage(EcuContexts.ECU_E, 0x2B00, 0x2B20, eventSink(eventRows, eventAdapter), scannerStateSink(status))
+                    ?: toast("Scanner hazır değil")
+            }
+        })
+
+        guideContent.addView(scannerActionRow(
+            "Kısa ECU adres yoklaması",
+            "Bilinmeyen ECU header adaylarını (0x1640…0x17A0) yoklar; yeni modül bulmak için ikinci aşama.",
+        ) {
+            runObdTask("ECU yoklaması") {
+                scanner?.scanKnownEcuCandidates(eventSink(eventRows, eventAdapter), scannerStateSink(status))
+                    ?: toast("Scanner hazır değil")
+            }
+        })
+
+        guideContent.addView(scannerSectionCard(
+            "3 · Car Scanner HCI profili (telefon / tablet)",
+            "Car Scanner'ın adaptöre gönderdiği komutları kopyalamak için telefonda Bluetooth HCI kaydı alınır; profil JSON olarak içe aktarılır.",
+            "HCI kayıt rehberini göster",
+            "Telefon/tablet adımları, bugreport alma ve profil çıkarma komutları.",
+        ) { showScrollableHelpDialog("Bluetooth HCI kayıt rehberi", hciCaptureGuideText()) })
+
+        val hciRow = controlRow()
+        hciRow.addView(scannerActionRow(
+            "HCI profili içe aktar",
+            "Mac/PC'de üretilen ex30-profile.json dosyasını seçin.",
+            compact = true,
+        ) { openProfile() })
+        hciRow.addView(scannerActionRow(
+            "Profili oynat",
+            "İçe aktarılan salt-okunur sorguları adaptörde tekrarlar; Car Scanner'ın hangi DID'leri sorduğunu görürsünüz.",
+            compact = true,
+        ) {
+            val profile = importedProfile
+            if (profile == null) {
+                toast("Önce HCI profili içe aktarın")
+                return@scannerActionRow
+            }
+            runObdTask("HCI profil oynatma") {
+                scanner?.replayProfile(profile, eventSink(eventRows, eventAdapter), scannerStateSink(status))
+                    ?: toast("Scanner hazır değil")
+            }
+        })
+        guideContent.addView(hciRow)
+
+        val controlRowFooter = controlRow()
+        controlRowFooter.addView(scannerActionRow(
+            "Taramayı durdur",
+            "Devam eden OBD taramasını durdurur; normal OBD okumaya döner.",
+            compact = true,
+        ) {
             scanner?.stop()
             resumeObdPollingAfterScanner()
+            eventRows.add(0, "■ Tarama durduruldu")
+            eventAdapter.notifyDataSetChanged()
+            refreshWorkflow()
         })
         if (obdConnectionState == ObdConnectionState.CONNECTED) {
-            connectRow.addView(actionButton("Bağlantıyı kes") { disconnectObdConnection(); status.text = obdScreenStatusText() })
+            controlRowFooter.addView(scannerActionRow(
+                "OBD bağlantısını kes",
+                "Adaptör bağlantısını kapatır.",
+                compact = true,
+            ) {
+                disconnectObdConnection()
+                refreshWorkflow()
+            })
         }
-        connectRow.addView(actionButton("Kayıtları paylaş") { shareLogs() })
-        root.addView(connectRow)
+        controlRowFooter.addView(scannerActionRow(
+            "Kayıtları paylaş",
+            "Keşif oturumu CSV/JSONL loglarını dışa aktarır.",
+            compact = true,
+        ) { shareLogs() })
+        guideContent.addView(controlRowFooter)
 
-        val actionRow = controlRow()
-        actionRow.addView(actionButton("Adayları izle") {
-            pauseObdPollingForScanner()
-            scanner?.watchCandidates(eventSink(eventRows, eventAdapter), scannerStateSink(status)) ?: toast("Önce bağlanın")
-        })
-        actionRow.addView(actionButton("Kısa ECU taraması") {
-            pauseObdPollingForScanner()
-            scanner?.scanKnownEcuCandidates(eventSink(eventRows, eventAdapter), scannerStateSink(status)) ?: toast("Önce bağlanın")
-        })
-        actionRow.addView(actionButton("HCI profili içe aktar") { openProfile() })
-        actionRow.addView(actionButton("Profili oynat") {
-            val profile = importedProfile
-            if (profile == null) toast("Önce profil içe aktarın")
-            else scanner?.replayProfile(profile, eventSink(eventRows, eventAdapter), scannerStateSink(status)) ?: toast("Önce bağlanın")
-        })
-        root.addView(actionRow)
+        guidePanel.addView(guideContent)
+        root.addView(guidePanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
 
-        val rangeRow = controlRow()
-        val ecuSpinner = Spinner(this).apply {
-            adapter = ArrayAdapter(this@MainActivity, android.R.layout.simple_spinner_dropdown_item, EcuContexts.known.map { it.name })
-        }
-        val start = hexInput("4800")
-        val end = hexInput("48FF")
-        rangeRow.addView(ecuSpinner, LinearLayout.LayoutParams(0, dp(54), 1f))
-        rangeRow.addView(start, LinearLayout.LayoutParams(0, dp(54), 1f))
-        rangeRow.addView(end, LinearLayout.LayoutParams(0, dp(54), 1f))
-        rangeRow.addView(actionButton("DID aralığını tara") {
-            try {
-                pauseObdPollingForScanner()
-                val from = start.text.toString().toInt(16)
-                val to = end.text.toString().toInt(16)
-                val ecu = EcuContexts.known[ecuSpinner.selectedItemPosition]
-                scanner?.scanDidPage(ecu, from, to, eventSink(eventRows, eventAdapter), scannerStateSink(status)) ?: toast("Önce bağlanın")
-            } catch (e: Exception) {
-                toast(e.message ?: "Geçersiz DID aralığı")
-            }
+        root.addView(label("Olay günlüğü · pozitif yanıt / aday / NRC", 14f, color(R.color.lab_text_secondary)).apply {
+            setPadding(dp(18), dp(4), dp(18), dp(2))
         })
-        root.addView(rangeRow)
         root.addView(ListView(this).apply {
             adapter = eventAdapter
             dividerHeight = dp(2)
-            setPadding(dp(18), 0, dp(18), dp(12))
+            setPadding(dp(18), 0, dp(18), dp(8))
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
@@ -488,16 +606,20 @@ class MainActivity : Activity() {
             vhalReader = AndroidVhalReader(manager) { powerMultiplier() }.also { reader ->
                 reader.start(onSample = {}, onSafety = {
                     safetyState = it
-                    runOnUiThread {
-                        if (scanner == null) {
-                            status.text = if (obdConnectionState == ObdConnectionState.CONNECTED) safetyLabel() else obdScreenStatusText()
-                        }
-                    }
+                    runOnUiThread { refreshWorkflow() }
                 })
             }
         } else {
-            status.text = "Tarama kilitli: Car API yok"
+            status.text = "Car API yok — yalnızca OBD keşfi kullanılabilir"
         }
+
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            logger?.close()
+            logger = SessionLogger(this).also { it.start("scanner") }
+            attachScanner(status)
+        }
+        refreshWorkflow()
+        if (obdConnectionState == ObdConnectionState.CONNECTED) ensureObdPolling()
     }
 
     private fun showObdDevices(returnTo: () -> Unit) {
@@ -812,6 +934,7 @@ class MainActivity : Activity() {
         logger?.close()
         logger = null
         scannerStatus = null
+        scannerWorkflowView = null
     }
 
     private fun stopActiveScreen(disconnectObd: Boolean = false) {
@@ -885,6 +1008,7 @@ class MainActivity : Activity() {
         val permissions = mutableListOf(
             Car.PERMISSION_SPEED, Car.PERMISSION_ENERGY, Car.PERMISSION_POWERTRAIN,
             Car.PERMISSION_CAR_INFO, Car.PERMISSION_ENERGY_PORTS, Car.PERMISSION_EXTERIOR_ENVIRONMENT,
+            "android.car.permission.READ_CAR_PEDALS",
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_SCAN
@@ -1008,6 +1132,137 @@ class MainActivity : Activity() {
         textSize = size
         setTextColor(textColor)
         gravity = gravityValue
+    }
+
+    private fun buildScannerWorkflowText(): String {
+        val obd = when (obdConnectionState) {
+            ObdConnectionState.CONNECTED -> "✓ ${obdDeviceName ?: "OBD"} bağlı"
+            ObdConnectionState.CONNECTING -> "◐ bağlanıyor…"
+            ObdConnectionState.ERROR -> "✕ bağlantı hatası"
+            ObdConnectionState.DISCONNECTED -> "○ henüz bağlı değil → «OBD adaptörüne bağlan»"
+        }
+        val safety = if (safetyState.scannerAllowed) "✓ park freni + sabit + READY/ON"
+        else "✕ ${safetyState.denialReason()}"
+        val scannerReady = if (scanner != null && obdConnectionState == ObdConnectionState.CONNECTED) "✓ scanner hazır"
+        else if (obdConnectionState == ObdConnectionState.CONNECTED) "◐ bağlanınca otomatik hazırlanır"
+        else "○ OBD bağlantısı gerekli"
+        val profile = importedProfile?.let { "✓ ${it.queries.size} salt-okunur sorgu içe aktarıldı" }
+            ?: "○ HCI profili yok (isteğe bağlı)"
+        return buildString {
+            appendLine("OBD keşif kontrol listesi")
+            appendLine("Adım 1 · Adaptör: $obd")
+            appendLine("Adım 2 · Güvenlik: $safety")
+            appendLine("Adım 3 · Scanner: $scannerReady")
+            appendLine("Adım 4 · HCI profili: $profile")
+            appendLine()
+            append("Sıra: AAOS dene → OBD bağlan → Otomatik keşif → (isteğe bağlı) HCI profili")
+        }
+    }
+
+    private fun runVhalProbeDialog(onFinished: () -> Unit = {}) {
+        val manager = carPropertyManager
+        if (manager == null) {
+            showScrollableHelpDialog(
+                "AAOS sensör denemesi",
+                "Car API bu ortamda yok (emülatör veya izin eksik).\n\nGerçek EX30 araç ekranında bu test gaz pedalı ve motor devri VHAL property'lerini okumayı dener.",
+            )
+            onFinished()
+            return
+        }
+        val results = VhalProbe.run(manager) { powerMultiplier() }
+        val detail = buildString {
+            results.forEach { row ->
+                appendLine("• ${row.label} (${row.propertyHex})")
+                appendLine("  Durum: ${row.status}")
+                if (row.displayValue != "—") appendLine("  Değer: ${row.displayValue} · ham: ${row.rawValue}")
+                appendLine("  ${row.note}")
+                appendLine()
+            }
+            appendLine(VhalProbe.summary(results))
+        }
+        showScrollableHelpDialog("AAOS sensör denemesi sonucu", detail)
+        onFinished()
+    }
+
+    private fun showScrollableHelpDialog(title: String, body: String) {
+        val scroll = ScrollView(this).apply {
+            addView(TextView(this@MainActivity).apply {
+                text = body
+                setTextColor(color(R.color.lab_text))
+                textSize = 15f
+                setPadding(dp(20), dp(12), dp(20), dp(8))
+            })
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setView(scroll)
+            .setPositiveButton("Tamam", null)
+            .show()
+    }
+
+    private fun hciCaptureGuideText(): String = """
+Bu kayıt araç ekranında değil, Car Scanner kurulu ayrı bir Android telefon veya tablette yapılır.
+
+1) Telefonda Geliştirici seçeneklerini açın → «Bluetooth HCI snoop log» etkin.
+2) Bluetooth'u kapatıp açın. Android-Vlink adaptörünü yalnız Car Scanner ile eşleştirin/bağlayın.
+3) Car Scanner'da sanal motor sesi için ilgili göstergeleri açın (Engine RPM, Throttle, Accelerator pedal vb.).
+4) 60–120 saniye kayıt alın: dur → hafif gaz → orta gaz → gaz bırak (regen).
+5) Car Scanner bağlantısını kesin. Aynı adaptöre iki uygulama aynı anda bağlanmasın.
+6) Telefonu USB ile bilgisayara bağlayın:
+   adb bugreport bugreport-ex30.zip
+7) Profil üretin (Mac/PC, proje klasöründe):
+   python3 tools/extract_hci_profile.py bugreport-ex30.zip ex30-profile.json
+8) JSON dosyasını USB veya bulut ile EX30'e aktarın → bu ekranda «HCI profili içe aktar» → «Profili oynat».
+
+Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmayın. Uygulama yalnız salt-okunur 01xx ve 22xxxx sorgularını kabul eder.
+""".trimIndent()
+
+    private fun scannerSectionCard(
+        title: String,
+        body: String,
+        buttonLabel: String,
+        buttonHelp: String,
+        onClick: () -> Unit,
+    ): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        setPadding(dp(14), dp(12), dp(14), dp(12))
+        background = rounded(color(R.color.lab_surface), color(R.color.lab_accent), dp(14))
+        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+            bottomMargin = dp(10)
+        }
+        addView(label(title, 18f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD) })
+        addView(label(body, 14f, color(R.color.lab_text_secondary)).apply {
+            setPadding(0, dp(6), 0, dp(8))
+        })
+        addView(actionButton(buttonLabel, onClick))
+        addView(label(buttonHelp, 13f, color(R.color.lab_text_secondary)).apply {
+            setPadding(0, dp(6), 0, 0)
+        })
+    }
+
+    private fun scannerActionRow(
+        buttonLabel: String,
+        help: String,
+        compact: Boolean = false,
+        onClick: () -> Unit,
+    ): LinearLayout = LinearLayout(this).apply {
+        orientation = LinearLayout.VERTICAL
+        if (!compact) {
+            setPadding(dp(14), dp(10), dp(14), dp(10))
+            background = rounded(color(R.color.lab_surface_alt), color(R.color.lab_accent), dp(12))
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                bottomMargin = dp(8)
+            }
+        } else {
+            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginEnd = dp(8)
+            }
+        }
+        addView(actionButton(buttonLabel, onClick))
+        addView(label(help, 12f, color(R.color.lab_text_secondary)).apply {
+            setPadding(0, dp(4), 0, 0)
+            if (compact) maxLines = 3
+        })
     }
 
     private fun messageSample(message: String, status: SampleStatus) = SensorSample(
