@@ -123,7 +123,7 @@ class MainActivity : Activity() {
             obdRow.addView(actionButton("OBD bağlantısını kes") { disconnectObdConnection(); showHome() })
         }
         root.addView(obdRow)
-        root.addView(label("Tarama yalnız araç sabitken çalışır", 16f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        root.addView(label("Tarama yalnız araç sabitken çalışır", 18f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(16), 0, dp(20))
         })
         setContentView(root)
@@ -138,7 +138,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
             val direction = when (powerMultiplier()) { 1 -> "hızlanmada +"; -1 -> "hızlanmada −"; else -> "doğrulanmadı" }
-            addView(label("Güç yönü: $direction", 15f, color(R.color.lab_text_secondary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label("Güç yönü: $direction", 17f, color(R.color.lab_text_secondary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(actionButton("Hızlanmada +") { savePowerMultiplier(1); showAaos() })
             addView(actionButton("Hızlanmada −") { savePowerMultiplier(-1); showAaos() })
             addView(actionButton("Sıfırla") { savePowerMultiplier(0); showAaos() })
@@ -190,7 +190,7 @@ class MainActivity : Activity() {
         }
         controls.addView(actionButton("Kayıtları paylaş") { shareLogs() })
         root.addView(controls)
-        root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama", 13f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
+        root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama", 16f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
         root.addView(ListView(this).apply {
             dividerHeight = dp(8)
             setPadding(dp(18), 0, dp(18), dp(12))
@@ -214,7 +214,7 @@ class MainActivity : Activity() {
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         scannerStatus = status
         val eventRows = mutableListOf<String>()
-        val eventAdapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, eventRows)
+        val eventAdapter = readableList(eventRows)
 
         val connectRow = controlRow()
         connectRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showScanner() } })
@@ -298,7 +298,7 @@ class MainActivity : Activity() {
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val devices = linkedMapOf<String, ObdDeviceEntry>()
         val rows = mutableListOf<String>()
-        val adapter = ArrayAdapter(this, android.R.layout.simple_list_item_1, rows)
+        val adapter = readableList(rows)
 
         fun refreshList() {
             rows.clear()
@@ -363,7 +363,7 @@ class MainActivity : Activity() {
             returnTo()
         })
         root.addView(controls)
-        root.addView(label("Bağlanmak için bir cihaza dokunun", 13f, color(R.color.lab_text_secondary)).apply {
+        root.addView(label("Bağlanmak için bir cihaza dokunun", 16f, color(R.color.lab_text_secondary)).apply {
             setPadding(dp(18), 0, 0, dp(6))
         })
         root.addView(ListView(this).apply {
@@ -621,12 +621,12 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(14), dp(20), dp(14))
             if (back) addView(actionButton("‹ Ana menü") { showHome() })
             addView(label(title, 28f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(obdIndicatorText(), 14f, obdIndicatorColor()).apply {
+            addView(label(obdIndicatorText(), 16f, obdIndicatorColor()).apply {
                 tag = "obd_indicator"
                 setPadding(dp(12), 0, dp(12), 0)
                 obdStatusView = this
             })
-            addView(label(status, 15f, color(R.color.lab_success)).apply { tag = "status" })
+            addView(label(status, 17f, color(R.color.lab_success)).apply { tag = "status" })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
     }
 
@@ -640,7 +640,7 @@ class MainActivity : Activity() {
         setOnClickListener { click() }
         addView(label(number, 52f, color(R.color.lab_accent), Gravity.CENTER).apply { setTypeface(typeface, Typeface.BOLD) })
         addView(label(title, 24f, Color.WHITE, Gravity.CENTER).apply { setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(22), 0, dp(8)) })
-        addView(label(subtitle, 15f, color(R.color.lab_text_secondary), Gravity.CENTER))
+        addView(label(subtitle, 17f, color(R.color.lab_text_secondary), Gravity.CENTER))
     }
 
     private fun controlRow() = LinearLayout(this).apply {
@@ -652,7 +652,7 @@ class MainActivity : Activity() {
     private fun actionButton(text: String, click: () -> Unit) = Button(this).apply {
         this.text = text
         setTextColor(Color.WHITE)
-        textSize = 14f
+        textSize = 17f
         isAllCaps = false
         background = rounded(color(R.color.lab_surface_alt), color(R.color.lab_accent), dp(10))
         setPadding(dp(14), 0, dp(14), 0)
@@ -675,6 +675,15 @@ class MainActivity : Activity() {
         setTextColor(textColor)
         gravity = gravityValue
     }
+
+    private fun readableList(rows: MutableList<String>): ArrayAdapter<String> =
+        object : ArrayAdapter<String>(this, android.R.layout.simple_list_item_1, rows) {
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup): View {
+                val view = super.getView(position, convertView, parent)
+                (view as? TextView)?.textSize = 17f
+                return view
+            }
+        }
 
     private fun messageSample(message: String, status: SampleStatus) = SensorSample(
         SensorDefinition("message", message, SensorSource.VHAL, "—", "", 0f), "—", "—",
