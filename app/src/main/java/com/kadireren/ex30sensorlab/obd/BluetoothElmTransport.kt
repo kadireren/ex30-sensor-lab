@@ -106,7 +106,7 @@ class BluetoothElmTransport(context: Context) : ElmTransport {
     companion object {
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         private val MAC_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
-        private const val CONNECT_ATTEMPTS = 3
-        private const val CONNECT_RETRY_DELAY_MS = 400L
+        private const val CONNECT_ATTEMPTS = 5
+        private const val CONNECT_RETRY_DELAY_MS = 600L
     }
 }
