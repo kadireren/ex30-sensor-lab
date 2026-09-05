@@ -1,7 +1,7 @@
 package com.kadireren.ex30sensorlab.obd
 
 import com.kadireren.ex30sensorlab.model.EcuContext
-import java.net.SocketTimeoutException
+import java.io.IOException
 
 class ElmProtocol(
     private val transport: ElmTransport,
@@ -43,8 +43,8 @@ class ElmProtocol(
         return try {
             if (ecu != null) switchEcu(ecu)
             send(safe, timeoutMs)
-        } catch (error: SocketTimeoutException) {
-            reconnectAfterTimeout(ecu)
+        } catch (error: IOException) {
+            reconnect(ecu)
             send(safe, timeoutMs)
         }
     }
@@ -85,7 +85,7 @@ class ElmProtocol(
         currentEcu = null
     }
 
-    private fun reconnectAfterTimeout(ecu: EcuContext?) {
+    private fun reconnect(ecu: EcuContext?) {
         val deviceId = connectedDeviceId ?: throw IllegalStateException("ELM bağlantısı kapatıldı")
         transport.close()
         initialized = false

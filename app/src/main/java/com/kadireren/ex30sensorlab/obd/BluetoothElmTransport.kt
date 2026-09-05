@@ -25,11 +25,18 @@ class BluetoothElmTransport(context: Context) : ElmTransport {
         val device = resolveDevice(bluetoothAdapter, deviceIdentifier)
             ?: error("OBD cihazı bulunamadı: $deviceIdentifier")
 
-        socket = connectSocket(device, secure = true) ?: connectSocket(device, secure = false)
-        if (socket?.isConnected != true) {
-            close()
-            throw IOException("OBD bağlantısı kurulamadı; başka uygulama adaptörü kullanıyor olabilir")
+        if (bluetoothAdapter.isDiscovering) bluetoothAdapter.cancelDiscovery()
+
+        repeat(CONNECT_ATTEMPTS) { attempt ->
+            val candidate = connectSocket(device, secure = true) ?: connectSocket(device, secure = false)
+            if (candidate?.isConnected == true) {
+                socket = candidate
+                return
+            }
+            if (attempt < CONNECT_ATTEMPTS - 1) SystemClock.sleep(CONNECT_RETRY_DELAY_MS)
         }
+        close()
+        throw IOException("OBD bağlantısı kurulamadı; başka uygulama adaptörü kullanıyor olabilir")
     }
 
     @SuppressLint("MissingPermission")
@@ -98,5 +105,7 @@ class BluetoothElmTransport(context: Context) : ElmTransport {
     companion object {
         val SPP_UUID: UUID = UUID.fromString("00001101-0000-1000-8000-00805F9B34FB")
         private val MAC_ADDRESS = Regex("^[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}$")
+        private const val CONNECT_ATTEMPTS = 5
+        private const val CONNECT_RETRY_DELAY_MS = 600L
     }
 }

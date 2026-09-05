@@ -14,7 +14,9 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
@@ -46,9 +48,11 @@ import com.kadireren.ex30sensorlab.vhal.SafetyState
 import com.kadireren.ex30sensorlab.vhal.VhalCatalog
 import java.io.File
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 class MainActivity : Activity() {
     private enum class ObdConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+    private enum class Page { AAOS, OBD, SCANNER, DRIVE }
 
     private var car: Car? = null
     private var carPropertyManager: CarPropertyManager? = null
@@ -74,15 +78,60 @@ class MainActivity : Activity() {
     private var driveSourceObdButton: Button? = null
     private var driveSource = SensorSource.VHAL
     private val drivePages = mutableMapOf(SensorSource.VHAL to 0, SensorSource.OBD to 0)
+    private var driveStatusView: TextView? = null
+    private var currentPage: Page? = null
+    private lateinit var swipeDetector: GestureDetector
+    private val swipeMinDistancePx by lazy { dp(64) }
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = color(R.color.lab_background)
         window.navigationBarColor = color(R.color.lab_background)
+        swipeDetector = GestureDetector(this, SwipeListener())
         requestRequiredPermissions()
         connectCar()
         showHome()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        swipeDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun navigateToPage(page: Page) {
+        when (page) {
+            Page.AAOS -> showAaos()
+            Page.OBD -> showObd()
+            Page.SCANNER -> showScanner()
+            Page.DRIVE -> showDriveView()
+        }
+    }
+
+    private inner class SwipeListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+            val start = e1 ?: return false
+            val dx = e2.x - start.x
+            val dy = e2.y - start.y
+            if (abs(dx) < swipeMinDistancePx || abs(dx) <= abs(dy) || abs(velocityX) < SWIPE_MIN_VELOCITY) return false
+            when (currentPage) {
+                Page.DRIVE -> {
+                    val adapter = driveAdapter ?: return false
+                    val delta = if (dx < 0f) 1 else -1
+                    window.decorView.post { changeDrivePage(delta, adapter, driveStatusView) }
+                    return true
+                }
+                else -> {
+                    val page = currentPage ?: return false
+                    val index = SWIPE_PAGES.indexOf(page)
+                    if (index < 0) return false
+                    val target = if (dx < 0f) index + 1 else index - 1
+                    if (target !in SWIPE_PAGES.indices) return false
+                    window.decorView.post { navigateToPage(SWIPE_PAGES[target]) }
+                    return true
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
@@ -115,6 +164,8 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         stopActiveScreen()
+        currentPage = null
+        driveStatusView = null
         val root = baseScreen("EX30 Sensor Lab", if (carPropertyManager != null) "● Araç bağlantısı hazır" else "○ Araç bağlantısı bekleniyor", false)
         val cards = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -138,7 +189,7 @@ class MainActivity : Activity() {
             obdRow.addView(actionButton("OBD bağlantısını kes") { disconnectObdConnection(); showHome() })
         }
         root.addView(obdRow)
-        root.addView(label("Tarama yalnız araç sabitken çalışır", 16f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        root.addView(label("Tarama yalnız araç sabitken çalışır", 18f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(16), 0, dp(20))
         })
         setContentView(root)
@@ -146,6 +197,8 @@ class MainActivity : Activity() {
 
     private fun showAaos() {
         stopActiveScreen()
+        currentPage = Page.AAOS
+        driveStatusView = null
         val manager = carPropertyManager
         val root = baseScreen("AAOS Verileri", if (manager != null) "● VHAL hazır" else "○ Car API bekleniyor", true)
         val calibration = LinearLayout(this).apply {
@@ -153,7 +206,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
             val direction = when (powerMultiplier()) { 1 -> "hızlanmada +"; -1 -> "hızlanmada −"; else -> "doğrulanmadı" }
-            addView(label("Güç yönü: $direction", 15f, color(R.color.lab_text_secondary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(label("Güç yönü: $direction", 17f, color(R.color.lab_text_secondary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(actionButton("Hızlanmada +") { savePowerMultiplier(1); showAaos() })
             addView(actionButton("Hızlanmada −") { savePowerMultiplier(-1); showAaos() })
             addView(actionButton("Sıfırla") { savePowerMultiplier(0); showAaos() })
@@ -183,32 +236,32 @@ class MainActivity : Activity() {
 
     private fun showDriveView() {
         stopScreenResources()
+        currentPage = Page.DRIVE
         driveSource = SensorSource.VHAL
         drivePages[SensorSource.VHAL] = 0
         drivePages[SensorSource.OBD] = 0
         val adapter = DriveSensorAdapter(this, SensorSource.VHAL).also { driveAdapter = it }
         val root = baseScreen("Sürüş Görünümü", "Canlı sensör değerleri", true)
-        val status = root.getChildAt(0).findViewWithTag<TextView>("status")
+        val status = root.getChildAt(0).findViewWithTag<TextView>("status").also { driveStatusView = it }
         val sourceRow = controlRow().apply { setPadding(dp(18), dp(6), dp(18), dp(4)) }
         driveSourceVhalButton = actionButton("VHAL") { selectDriveSource(SensorSource.VHAL, adapter, status) }
         driveSourceObdButton = actionButton("OBD") { selectDriveSource(SensorSource.OBD, adapter, status) }
         sourceRow.addView(driveSourceVhalButton)
         sourceRow.addView(driveSourceObdButton)
         root.addView(sourceRow)
-        drivePageLabel = label("VHAL · Sayfa 1 / 1", 16f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        drivePageLabel = label("VHAL · Sayfa 1 / 1", 17f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(4), 0, dp(4))
         }
         root.addView(drivePageLabel)
+        root.addView(label("Sağa/sola kaydır: sayfa değiştir", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+            setPadding(dp(18), 0, dp(18), dp(4))
+        })
         root.addView(ListView(this).apply {
             dividerHeight = dp(12)
             setPadding(dp(24), dp(8), dp(24), dp(8))
             clipToPadding = false
             this.adapter = adapter
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val nav = controlRow()
-        nav.addView(actionButton("Önceki") { changeDrivePage(-1, adapter, status) })
-        nav.addView(actionButton("Sonraki") { changeDrivePage(1, adapter, status) })
-        root.addView(nav)
         setContentView(root)
         refreshDrivePage(adapter, status)
 
@@ -311,6 +364,8 @@ class MainActivity : Activity() {
 
     private fun showObd() {
         stopActiveScreen()
+        currentPage = Page.OBD
+        driveStatusView = null
         val root = baseScreen("OBD Verileri", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val adapter = SensorListAdapter(this)
@@ -333,7 +388,7 @@ class MainActivity : Activity() {
         }
         controls.addView(actionButton("Kayıtları paylaş") { shareLogs() })
         root.addView(controls)
-        root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama", 13f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
+        root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama · ekranlar arası kaydır", 16f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
         root.addView(ListView(this).apply {
             dividerHeight = dp(8)
             setPadding(dp(18), 0, dp(18), dp(12))
@@ -353,6 +408,8 @@ class MainActivity : Activity() {
 
     private fun showScanner() {
         stopActiveScreen()
+        currentPage = Page.SCANNER
+        driveStatusView = null
         val root = baseScreen("OBD Scanner", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         scannerStatus = status
@@ -435,6 +492,8 @@ class MainActivity : Activity() {
 
     private fun showObdDevices(returnTo: () -> Unit) {
         stopScreenResources()
+        currentPage = null
+        driveStatusView = null
         obdDeviceReturnAction = returnTo
         val scanner = BluetoothObdDeviceScanner(this).also { deviceScanner = it }
         val root = baseScreen("OBD Cihazları", "Bluetooth cihazlarını seçin", true)
@@ -506,7 +565,7 @@ class MainActivity : Activity() {
             returnTo()
         })
         root.addView(controls)
-        root.addView(label("Bağlanmak için bir cihaza dokunun", 13f, color(R.color.lab_text_secondary)).apply {
+        root.addView(label("Bağlanmak için bir cihaza dokunun", 16f, color(R.color.lab_text_secondary)).apply {
             setPadding(dp(18), 0, 0, dp(6))
         })
         root.addView(ListView(this).apply {
@@ -764,12 +823,12 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(14), dp(20), dp(14))
             if (back) addView(actionButton("‹ Ana menü") { showHome() })
             addView(label(title, 28f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD) }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(label(obdIndicatorText(), 14f, obdIndicatorColor()).apply {
+            addView(label(obdIndicatorText(), 16f, obdIndicatorColor()).apply {
                 tag = "obd_indicator"
                 setPadding(dp(12), 0, dp(12), 0)
                 obdStatusView = this
             })
-            addView(label(status, 15f, color(R.color.lab_success)).apply { tag = "status" })
+            addView(label(status, 17f, color(R.color.lab_success)).apply { tag = "status" })
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(72)))
     }
 
@@ -781,7 +840,7 @@ class MainActivity : Activity() {
             view.setTextColor(color(R.color.lab_text))
             view.setBackgroundColor(color(R.color.lab_surface))
             view.setPadding(dp(16), dp(14), dp(16), dp(14))
-            view.textSize = 15f
+            view.textSize = 17f
             return view
         }
     }
@@ -796,7 +855,7 @@ class MainActivity : Activity() {
         setOnClickListener { click() }
         addView(label(number, 52f, color(R.color.lab_accent), Gravity.CENTER).apply { setTypeface(typeface, Typeface.BOLD) })
         addView(label(title, 24f, Color.WHITE, Gravity.CENTER).apply { setTypeface(typeface, Typeface.BOLD); setPadding(0, dp(22), 0, dp(8)) })
-        addView(label(subtitle, 15f, color(R.color.lab_text_secondary), Gravity.CENTER))
+        addView(label(subtitle, 17f, color(R.color.lab_text_secondary), Gravity.CENTER))
     }
 
     private fun controlRow() = LinearLayout(this).apply {
@@ -808,7 +867,7 @@ class MainActivity : Activity() {
     private fun actionButton(text: String, click: () -> Unit) = Button(this).apply {
         this.text = text
         setTextColor(Color.WHITE)
-        textSize = 14f
+        textSize = 17f
         isAllCaps = false
         background = rounded(color(R.color.lab_surface_alt), color(R.color.lab_accent), dp(10))
         setPadding(dp(14), 0, dp(14), 0)
@@ -854,5 +913,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
         private const val REQUEST_PROFILE = 1002
+        private const val SWIPE_MIN_VELOCITY = 250f
+        private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.DRIVE)
     }
 }
