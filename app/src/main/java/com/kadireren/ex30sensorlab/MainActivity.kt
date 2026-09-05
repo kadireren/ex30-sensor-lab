@@ -14,7 +14,9 @@ import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.view.GestureDetector
 import android.view.Gravity
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
@@ -44,9 +46,11 @@ import com.kadireren.ex30sensorlab.vhal.AndroidVhalReader
 import com.kadireren.ex30sensorlab.vhal.SafetyState
 import java.io.File
 import java.util.concurrent.Executors
+import kotlin.math.abs
 
 class MainActivity : Activity() {
     private enum class ObdConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
+    private enum class Page { AAOS, OBD, SCANNER }
 
     private var car: Car? = null
     private var carPropertyManager: CarPropertyManager? = null
@@ -66,15 +70,48 @@ class MainActivity : Activity() {
     private var obdAdapterId: String? = null
     private var obdErrorMessage: String? = null
     private var obdDeviceReturnAction: (() -> Unit)? = null
+    private var currentPage: Page? = null
+    private lateinit var swipeDetector: GestureDetector
+    private val swipeMinDistancePx by lazy { dp(64) }
     private val ioExecutor = Executors.newSingleThreadExecutor()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.statusBarColor = color(R.color.lab_background)
         window.navigationBarColor = color(R.color.lab_background)
+        swipeDetector = GestureDetector(this, SwipeListener())
         requestRequiredPermissions()
         connectCar()
         showHome()
+    }
+
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        swipeDetector.onTouchEvent(ev)
+        return super.dispatchTouchEvent(ev)
+    }
+
+    private fun navigateToPage(page: Page) {
+        when (page) {
+            Page.AAOS -> showAaos()
+            Page.OBD -> showObd()
+            Page.SCANNER -> showScanner()
+        }
+    }
+
+    private inner class SwipeListener : GestureDetector.SimpleOnGestureListener() {
+        override fun onFling(e1: MotionEvent?, e2: MotionEvent, velocityX: Float, velocityY: Float): Boolean {
+            val page = currentPage ?: return false
+            val start = e1 ?: return false
+            val dx = e2.x - start.x
+            val dy = e2.y - start.y
+            if (abs(dx) < swipeMinDistancePx || abs(dx) <= abs(dy) || abs(velocityX) < SWIPE_MIN_VELOCITY) return false
+            val index = SWIPE_PAGES.indexOf(page)
+            val target = if (dx < 0f) index + 1 else index - 1
+            if (target !in SWIPE_PAGES.indices) return false
+            // İçerik görünümünü dokunma dağıtımı sırasında değil, sonrasında yeniden kur.
+            window.decorView.post { navigateToPage(SWIPE_PAGES[target]) }
+            return true
+        }
     }
 
     override fun onDestroy() {
@@ -107,6 +144,7 @@ class MainActivity : Activity() {
 
     private fun showHome() {
         stopActiveScreen()
+        currentPage = null
         val root = baseScreen("EX30 Sensor Lab", if (carPropertyManager != null) "● Araç bağlantısı hazır" else "○ Araç bağlantısı bekleniyor", false)
         val cards = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -131,6 +169,7 @@ class MainActivity : Activity() {
 
     private fun showAaos() {
         stopActiveScreen()
+        currentPage = Page.AAOS
         val manager = carPropertyManager
         val root = baseScreen("AAOS Verileri", if (manager != null) "● VHAL hazır" else "○ Car API bekleniyor", true)
         val calibration = LinearLayout(this).apply {
@@ -168,6 +207,7 @@ class MainActivity : Activity() {
 
     private fun showObd() {
         stopActiveScreen()
+        currentPage = Page.OBD
         val root = baseScreen("OBD Verileri", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val adapter = SensorListAdapter(this)
@@ -210,6 +250,7 @@ class MainActivity : Activity() {
 
     private fun showScanner() {
         stopActiveScreen()
+        currentPage = Page.SCANNER
         val root = baseScreen("OBD Scanner", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         scannerStatus = status
@@ -292,6 +333,7 @@ class MainActivity : Activity() {
 
     private fun showObdDevices(returnTo: () -> Unit) {
         stopScreenResources()
+        currentPage = null
         obdDeviceReturnAction = returnTo
         val scanner = BluetoothObdDeviceScanner(this).also { deviceScanner = it }
         val root = baseScreen("OBD Cihazları", "Bluetooth cihazlarını seçin", true)
@@ -698,5 +740,7 @@ class MainActivity : Activity() {
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
         private const val REQUEST_PROFILE = 1002
+        private const val SWIPE_MIN_VELOCITY = 250f
+        private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER)
     }
 }
