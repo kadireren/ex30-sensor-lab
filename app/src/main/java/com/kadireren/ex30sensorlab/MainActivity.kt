@@ -5,13 +5,10 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.car.Car
 import android.car.hardware.property.CarPropertyManager
-import android.content.ClipData
-import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.view.GestureDetector
@@ -28,6 +25,7 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.kadireren.ex30sensorlab.logging.DownloadStorage
 import com.kadireren.ex30sensorlab.logging.SessionLogger
 import com.kadireren.ex30sensorlab.model.SampleStatus
 import com.kadireren.ex30sensorlab.model.ScanProfile
@@ -384,7 +382,7 @@ class MainActivity : Activity() {
         if (obdConnectionState == ObdConnectionState.CONNECTED) {
             controls.addView(actionButton("Bağlantıyı kes") { disconnectObdConnection(); status.text = obdScreenStatusText() })
         }
-        controls.addView(actionButton("Kayıtları paylaş") { shareLogs() })
+        controls.addView(actionButton("Download'a aktar") { exportLogsToDownload() })
         root.addView(controls)
         root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama · ekranlar arası kaydır", 16f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
         root.addView(ListView(this).apply {
@@ -539,7 +537,7 @@ class MainActivity : Activity() {
         val hciRow = controlRow()
         hciRow.addView(scannerActionRow(
             "HCI profili içe aktar",
-            "Mac/PC'de üretilen ex30-profile.json dosyasını seçin.",
+            "Download/EX30SensorLab klasöründeki .json dosyasını seçin (USB ile kopyalanabilir).",
             compact = true,
         ) { openProfile() })
         hciRow.addView(scannerActionRow(
@@ -582,10 +580,10 @@ class MainActivity : Activity() {
             })
         }
         controlRowFooter.addView(scannerActionRow(
-            "Kayıtları paylaş",
-            "Keşif oturumu CSV/JSONL loglarını dışa aktarır.",
+            "Download'a aktar",
+            "Oturum CSV/JSONL loglarını Download/EX30SensorLab klasörüne yazar.",
             compact = true,
-        ) { shareLogs() })
+        ) { exportLogsToDownload() })
         guideContent.addView(controlRowFooter)
 
         guidePanel.addView(guideContent)
@@ -943,24 +941,42 @@ class MainActivity : Activity() {
     }
 
     private fun openProfile() {
-        startActivityForResult(Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
-            addCategory(Intent.CATEGORY_OPENABLE)
-            type = "application/json"
-        }, REQUEST_PROFILE)
+        val files = DownloadStorage.listJsonFiles(this)
+        if (files.isEmpty()) {
+            showScrollableHelpDialog(
+                "HCI profili bulunamadı",
+                buildString {
+                    appendLine("Henüz Download klasöründe profil yok.")
+                    appendLine()
+                    append("Mac/PC'deki ex30-profile.json dosyasını USB bellek veya dosya yöneticisi ile şuraya kopyalayın:")
+                    appendLine()
+                    appendLine()
+                    append(DownloadStorage.displayPath())
+                    appendLine()
+                    appendLine("Kopyaladıktan sonra «HCI profili içe aktar» düğmesine tekrar basın.")
+                },
+            )
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Download klasöründen profil seç")
+            .setItems(files.map { it.name }.toTypedArray()) { _, index ->
+                loadProfile(files[index])
+            }
+            .setNegativeButton("İptal", null)
+            .show()
     }
 
-    @Deprecated("Deprecated in Android")
-    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
-        super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != REQUEST_PROFILE || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+    private fun loadProfile(entry: DownloadStorage.Entry) {
         try {
-            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() } ?: error("Profil okunamadı")
+            val text = DownloadStorage.readText(this, entry)
             importedProfile = ScanProfileParser.parse(text)
             scannerStatus?.text = "Profil hazır: ${importedProfile?.queries?.size ?: 0} salt-okunur sorgu"
             importedProfile?.let(::showProfileReview)
+            scannerWorkflowView?.text = buildScannerWorkflowText()
         } catch (e: Exception) {
             scannerStatus?.text = "Profil reddedildi: ${e.message}"
+            toast("Profil okunamadı: ${e.message}")
         }
     }
 
@@ -986,22 +1002,25 @@ class MainActivity : Activity() {
 
     private fun stateSink(status: TextView): (String) -> Unit = { text -> runOnUiThread { status.text = text } }
 
-    private fun shareLogs() {
-        val files = listOfNotNull(logger?.csvFile, logger?.jsonlFile).filter(File::isFile)
+    private fun exportLogsToDownload() {
+        val files = listOfNotNull(logger?.csvFile, logger?.jsonlFile).filter { it.isFile }
         if (files.isEmpty()) {
-            toast("Paylaşılacak kayıt yok")
+            toast("Aktarılacak kayıt yok")
             return
         }
-        val uris = ArrayList(files.map { Uri.parse("content://${packageName}.files/${it.name}") })
-        val intent = Intent(Intent.ACTION_SEND_MULTIPLE).apply {
-            type = "application/octet-stream"
-            putParcelableArrayListExtra(Intent.EXTRA_STREAM, uris)
-            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            clipData = ClipData.newUri(contentResolver, files.first().name, uris.first()).also { clip ->
-                uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
+        ioExecutor.execute {
+            try {
+                val exported = files.map { DownloadStorage.exportFile(this, it) }
+                runOnUiThread {
+                    toast(
+                        "${exported.size} dosya ${DownloadStorage.displayPath()} klasörüne yazıldı:\n" +
+                            exported.joinToString("\n") { it.name },
+                    )
+                }
+            } catch (e: Exception) {
+                runOnUiThread { toast("Download'a aktarılamadı: ${e.message}") }
             }
         }
-        startActivity(Intent.createChooser(intent, "Sensör kayıtlarını paylaş"))
     }
 
     private fun requestRequiredPermissions() {
@@ -1012,6 +1031,9 @@ class MainActivity : Activity() {
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_SCAN
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            permissions += Manifest.permission.READ_EXTERNAL_STORAGE
+        }
         val missing = permissions.distinct().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
     }
@@ -1211,8 +1233,8 @@ Bu kayıt araç ekranında değil, Car Scanner kurulu ayrı bir Android telefon 
 6) Telefonu USB ile bilgisayara bağlayın:
    adb bugreport bugreport-ex30.zip
 7) Profil üretin (Mac/PC, proje klasöründe):
-   python3 tools/extract_hci_profile.py bugreport-ex30.zip ex30-profile.json
-8) JSON dosyasını USB veya bulut ile EX30'e aktarın → bu ekranda «HCI profili içe aktar» → «Profili oynat».
+   python3 tools/extract_snooz_profile.py captures/hci/dumpsys-*.txt ex30-profile.json
+8) ex30-profile.json dosyasını USB bellek ile EX30 Download/EX30SensorLab klasörüne kopyalayın → Sensör Keşfi → HCI profili içe aktar → Profili oynat.
 
 Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmayın. Uygulama yalnız salt-okunur 01xx ve 22xxxx sorgularını kabul eder.
 """.trimIndent()
@@ -1290,7 +1312,6 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
-        private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f
         private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.DRIVE)
     }
