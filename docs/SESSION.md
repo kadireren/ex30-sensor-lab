@@ -2,6 +2,9 @@
 
 Son güncelleme: 2026-09-08
 
+**Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
+bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
+
 ## 2026-09-08 güvenilirlik iyileştirmeleri
 
 - `ElmProtocol` sorguları ve bağlantı doğrulaması aynı kilit altında
@@ -62,7 +65,7 @@ Son güncelleme: 2026-09-08
 
 ## Uygulanan yapı
 
-- `vhal/`: 13 doğrulanmış VHAL property + ham `WHEEL_TICK`; destek/izin,
+- `vhal/`: 17 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil); destek/izin,
   ham ve dönüştürülmüş değer, örnek yaşı/gecikme, hedef ve gerçek Hz; güç yönü
   kullanıcı kalibrasyonu.
 - `obd/`: Classic Bluetooth SPP ile eşleştirilmiş `Android-Vlink` bağlantısı,

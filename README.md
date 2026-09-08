@@ -6,7 +6,7 @@ uygulaması.
 
 ## Ekranlar
 
-- **AAOS Verileri:** Araçta doğrulanmış 13 VHAL property ve `WHEEL_TICK`.
+- **AAOS Verileri:** 17 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil).
 - **OBD Verileri:** Doğrulanmış EX30 ECU/DID değerleri ve odak modu.
 - **OBD Scanner:** Aday izleme, kısa ECU yoklama, en fazla 256 DID taraması ve
   HCI profil tekrarı.
@@ -24,6 +24,8 @@ python3 -m unittest discover tools/tests
 Debug APK: `app/build/outputs/apk/debug/app-debug.apk`
 
 HCI yakalama adımları: [docs/HCI_CAPTURE_TR.md](docs/HCI_CAPTURE_TR.md)
+
+Keşif özeti (VHAL, OBD, HCI, sanal ses): [docs/DISCOVERY_MEMORY.md](docs/DISCOVERY_MEMORY.md)
 
 ## Kaynak ve lisans
 

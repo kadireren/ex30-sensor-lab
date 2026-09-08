@@ -5,6 +5,10 @@ Volvo EX30 üzerinde VHAL ve `Android-Vlink` (ELM327) üzerinden salt-okunur OBD
 sensör doğrulaması yapar. Gradle + Kotlin ile derlenir; ayrıca `tools/` altında
 saf-Python bir HCI profil çıkarıcı ve unittest'leri vardır.
 
+Keşif geçmişi (VHAL/OBD/HCI, sanal ses, başarılı ve başarısız denemeler):
+[`docs/DISCOVERY_MEMORY.md`](docs/DISCOVERY_MEMORY.md) — gaz/RPM/ses konularında
+önce bu dosyaya bak.
+
 ## Cursor Cloud specific instructions
 
 Bu ortam bir kez kurulduktan sonra (update script çalıştıktan sonra) aşağıdakiler geçerlidir.

@@ -65,6 +65,25 @@ object DownloadStorage {
         is Entry.Legacy -> entry.file.readText()
     }
 
+    fun writeText(context: Context, fileName: String, text: String): ExportedFile {
+        val folder = writableLabFolder() ?: error("Download/$FOLDER_NAME yazılamıyor")
+        folder.mkdirs()
+        val target = File(folder, fileName)
+        target.writeText(text)
+        return ExportedFile(
+            name = fileName,
+            folderPath = "${folder.parentFile?.name ?: DOWNLOAD_SEGMENT}/$FOLDER_NAME",
+            absolutePath = target.absolutePath,
+        )
+    }
+
+    fun readNamedText(context: Context, fileName: String): String? {
+        val folder = writableLabFolder() ?: return null
+        val file = File(folder, fileName)
+        if (!file.isFile) return null
+        return file.readText()
+    }
+
     fun exportFile(context: Context, source: File, targetName: String = source.name): ExportedFile {
         require(source.isFile) { "Kaynak dosya yok: ${source.name}" }
         val folder = writableLabFolder() ?: return exportViaMediaStore(context, source, targetName)

@@ -1,6 +1,11 @@
 package com.kadireren.ex30sensorlab.scanner
 
 import android.os.SystemClock
+import com.kadireren.ex30sensorlab.discovery.CalibrationPhase
+import com.kadireren.ex30sensorlab.discovery.CalibrationSample
+import com.kadireren.ex30sensorlab.discovery.CalibrationScorer
+import com.kadireren.ex30sensorlab.discovery.DiscoveryDecodeType
+import com.kadireren.ex30sensorlab.discovery.DiscoveredQueryRecord
 import com.kadireren.ex30sensorlab.model.EcuContext
 import com.kadireren.ex30sensorlab.model.ScanEvent
 import com.kadireren.ex30sensorlab.model.ScanProfile
@@ -68,11 +73,80 @@ class ScannerController(
     }
 
     fun replayProfile(profile: ScanProfile, onEvent: (ScanEvent) -> Unit, onState: (String) -> Unit) = launch(onState) {
+        replayProfileInternal(profile, onEvent, onState, null)
+    }
+
+    fun replayProfileForDiscovery(
+        profile: ScanProfile,
+        onEvent: (ScanEvent) -> Unit,
+        onState: (String) -> Unit,
+        onDiscovered: (DiscoveredQueryRecord) -> Unit,
+    ) = launch(onState) {
+        val discovered = mutableListOf<DiscoveredQueryRecord>()
+        replayProfileInternal(profile, onEvent, onState) { query, raw ->
+            val record = DiscoveredQueryRecord.fromScanQuery(
+                query = query,
+                raw = raw,
+                sourceSession = profile.sourceSession,
+                nowMs = SystemClock.elapsedRealtime(),
+            )
+            discovered += record
+            onDiscovered(record)
+        }
+        onState("Keşif replay bitti · ${discovered.size} pozitif sorgu")
+    }
+
+    fun runCalibration(
+        pending: List<DiscoveredQueryRecord>,
+        phaseSeconds: Int,
+        onPhase: (CalibrationPhase, String) -> Unit,
+        onSample: (CalibrationSample) -> Unit,
+        onState: (String) -> Unit,
+        onFinished: (List<CalibrationSample>) -> Unit,
+    ) = launch(onState) {
+        val samples = mutableListOf<CalibrationSample>()
+        val phases = listOf(
+            CalibrationPhase.REST to "Pedalı bırakın",
+            CalibrationPhase.PEDAL to "~%30 gaz verin ve tutun",
+            CalibrationPhase.REST_AGAIN to "Pedalı tekrar bırakın",
+        )
+        for ((phaseIndex, phasePair) in phases.withIndex()) {
+            if (!running.get()) break
+            val (phase, hint) = phasePair
+            onPhase(phase, hint)
+            onState("Kalibrasyon ${phaseIndex + 1}/${phases.size}: $hint")
+            val endAt = SystemClock.elapsedRealtime() + phaseSeconds * 1000L
+            while (running.get() && SystemClock.elapsedRealtime() < endAt) {
+                requireSafe()
+                for (record in pending) {
+                    if (!running.get()) break
+                    val command = "${record.service}${record.did}"
+                    val raw = protocol.query(record.ecu, command)
+                    val numeric = CalibrationScorer.numericFromRaw(record.did, raw, DiscoveryDecodeType.RAW_HEX)
+                    samples += CalibrationSample(phase, record.stableKey, numeric, raw)
+                    onSample(CalibrationSample(phase, record.stableKey, numeric, raw))
+                }
+                SystemClock.sleep(400L)
+            }
+        }
+        onFinished(samples)
+    }
+
+    private fun replayProfileInternal(
+        profile: ScanProfile,
+        onEvent: (ScanEvent) -> Unit,
+        onState: (String) -> Unit,
+        onPositive: ((com.kadireren.ex30sensorlab.model.ScanQuery, String) -> Unit)?,
+    ) {
         for ((index, query) in profile.queries.withIndex()) {
             if (!running.get()) break
             requireSafe()
             onState("Profil oynatma ${index + 1}/${profile.queries.size}")
-            query(query.ecu, "${query.service}${query.did}", query.did, onEvent)
+            val raw = protocol.query(query.ecu, "${query.service}${query.did}")
+            emitQueryEvent(query.ecu, "${query.service}${query.did}", query.did, raw, onEvent)
+            if (ObdDecoders.isPositiveResponse(raw, query.did)) {
+                onPositive?.invoke(query, raw)
+            }
             SystemClock.sleep(333L)
         }
     }
@@ -103,6 +177,10 @@ class ScannerController(
 
     private fun query(ecu: EcuContext?, command: String, did: String, onEvent: (ScanEvent) -> Unit) {
         val raw = protocol.query(ecu, command)
+        emitQueryEvent(ecu, command, did, raw, onEvent)
+    }
+
+    private fun emitQueryEvent(ecu: EcuContext?, command: String, did: String, raw: String, onEvent: (ScanEvent) -> Unit) {
         val positive = ObdDecoders.isPositiveResponse(raw, did)
         val key = "${ecu?.header ?: "MODE01"}:$did"
         val previous = lastPositiveResponse[key]

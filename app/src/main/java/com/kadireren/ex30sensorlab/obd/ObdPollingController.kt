@@ -1,6 +1,8 @@
 package com.kadireren.ex30sensorlab.obd
 
 import android.os.SystemClock
+import com.kadireren.ex30sensorlab.discovery.DiscoveredSensorCatalog
+import com.kadireren.ex30sensorlab.discovery.DiscoveryDecoders
 import com.kadireren.ex30sensorlab.model.ObdPidDefinition
 import com.kadireren.ex30sensorlab.model.SampleStatus
 import com.kadireren.ex30sensorlab.model.SensorDefinition
@@ -91,7 +93,9 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         try {
             val command = if (definition.did.startsWith("AT")) definition.did else "22${definition.did}"
             val raw = protocol.query(definition.ecu, command)
-            val display = ObdDecoders.decode(definition.key, definition.did, raw)
+            val discoveredConfig = DiscoveredSensorCatalog.findConfig(definition.key)
+            val display = discoveredConfig?.let { DiscoveryDecoders.format(it, raw) }
+                ?: ObdDecoders.decode(definition.key, definition.did, raw)
             val success = display != null
             querySucceeded = success
             recordBrakeResult(definition.key, raw, success)
@@ -131,8 +135,11 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
 
     private fun selectedDefinitions(): List<ObdPidDefinition> {
         val focused = focusKey
-        if (focused != null) return ObdCatalog.confirmed.filter { it.key == focused }
-        return ObdCatalog.confirmed.filter {
+        val discovered = DiscoveredSensorCatalog.confirmedDefinitions()
+        if (focused != null) {
+            return (discovered + ObdCatalog.confirmed).filter { it.key == focused }
+        }
+        return discovered + ObdCatalog.confirmed.filter {
             when {
                 it.key == "brake_multi" -> !brakeFallback
                 it.key.startsWith("brake_") -> brakeFallback && it.key != "brake_multi"
