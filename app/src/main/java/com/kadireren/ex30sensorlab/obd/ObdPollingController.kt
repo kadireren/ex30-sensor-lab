@@ -10,13 +10,18 @@ import java.util.ArrayDeque
 import java.util.Locale
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicLong
 
 class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler {
+    private data class TimedRaw(val raw: String, val timestampMs: Long)
+
     private val executor = Executors.newSingleThreadExecutor()
     private val running = AtomicBoolean(false)
+    private val generation = AtomicLong(0L)
+    private val focusChanged = AtomicBoolean(false)
     private val nextDue = mutableMapOf<String, Long>()
     private val timestamps = mutableMapOf<String, ArrayDeque<Long>>()
-    private val rawByKey = mutableMapOf<String, String>()
+    private val rawByKey = mutableMapOf<String, TimedRaw>()
     @Volatile private var focusKey: String? = null
     private var brakeFailures = 0
     private var brakeFallback = false
@@ -25,9 +30,12 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
 
     override fun start(onSample: (SensorSample) -> Unit, onState: (String) -> Unit) {
         if (!running.compareAndSet(false, true)) return
+        val runGeneration = generation.incrementAndGet()
         executor.execute {
+            resetRunState()
             onState("OBD okuma başladı")
-            while (running.get()) {
+            while (running.get() && generation.get() == runGeneration) {
+                if (focusChanged.compareAndSet(true, false)) nextDue.clear()
                 val now = SystemClock.elapsedRealtime()
                 val definitions = selectedDefinitions()
                 val due = definitions
@@ -39,8 +47,9 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
                 }
                 val dueByEcu = due.groupBy { it.ecu?.name ?: "ELM327" }
                 for ((_, batch) in dueByEcu.entries.sortedBy { it.key }) {
-                    if (!running.get()) break
+                    if (!running.get() || generation.get() != runGeneration) break
                     for (definition in batch.sortedByDescending { it.targetHz }) {
+                        if (!running.get() || generation.get() != runGeneration) break
                         queryOne(definition, onSample, onState)
                     }
                 }
@@ -51,18 +60,14 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
 
     override fun focus(sensorKey: String?) {
         focusKey = sensorKey
-        nextDue.clear()
+        focusChanged.set(true)
     }
 
     override fun stop() {
         running.set(false)
+        generation.incrementAndGet()
         focusKey = null
-        nextDue.clear()
-        timestamps.clear()
-        brakeFailures = 0
-        brakeFallback = false
-        odometerFailures = 0
-        odometerFallback = false
+        focusChanged.set(false)
     }
 
     fun close() {
@@ -70,16 +75,29 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         executor.shutdownNow()
     }
 
+    private fun resetRunState() {
+        nextDue.clear()
+        timestamps.clear()
+        rawByKey.clear()
+        brakeFailures = 0
+        brakeFallback = false
+        odometerFailures = 0
+        odometerFallback = false
+    }
+
     private fun queryOne(definition: ObdPidDefinition, onSample: (SensorSample) -> Unit, onState: (String) -> Unit) {
         val started = SystemClock.elapsedRealtime()
+        var querySucceeded = false
         try {
             val command = if (definition.did.startsWith("AT")) definition.did else "22${definition.did}"
             val raw = protocol.query(definition.ecu, command)
             val display = ObdDecoders.decode(definition.key, definition.did, raw)
             val success = display != null
+            querySucceeded = success
             recordBrakeResult(definition.key, raw, success)
             recordOdometerResult(definition.key, raw, success)
-            rawByKey[definition.key] = raw
+            if (success) rawByKey[definition.key] = TimedRaw(raw, SystemClock.elapsedRealtime())
+            else rawByKey.remove(definition.key)
             onSample(sample(definition, raw, display ?: "Yanıt çözülemedi", started, success))
             emitPowerIfReady(onSample, started)
             emitBrakeAverageIfReady(onSample, started)
@@ -87,7 +105,8 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
             onSample(sample(definition, "", e.message ?: "OBD hatası", started, false))
             onState(e.message ?: "OBD okuma hatası")
         }
-        nextDue[definition.key] = started + intervalMs(definition)
+        val delayMs = if (querySucceeded) intervalMs(definition) else ERROR_RETRY_DELAY_MS
+        nextDue[definition.key] = SystemClock.elapsedRealtime() + delayMs
     }
 
     private fun recordBrakeResult(key: String, raw: String, success: Boolean) {
@@ -125,7 +144,7 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
     }
 
     private fun intervalMs(def: ObdPidDefinition): Long {
-        if (focusKey != null) return 25L
+        if (focusKey != null) return FOCUS_INTERVAL_MS
         val hz = if (def.key.startsWith("brake_") && brakeFallback) 8f else def.targetHz
         return if (hz <= 0f) 5_000L else (1000f / hz).toLong().coerceAtLeast(25L)
     }
@@ -151,7 +170,8 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
     private fun emitPowerIfReady(onSample: (SensorSample) -> Unit, started: Long) {
         val voltage = rawByKey["hv_voltage"] ?: return
         val current = rawByKey["hv_current"] ?: return
-        val power = ObdDecoders.derivedPowerKw(voltage, current) ?: return
+        if (kotlin.math.abs(voltage.timestampMs - current.timestampMs) > MAX_DERIVED_SAMPLE_SKEW_MS) return
+        val power = ObdDecoders.derivedPowerKw(voltage.raw, current.raw) ?: return
         val def = ObdPidDefinition("hv_power", "HV güç (türetilmiş)", "4801×4802", "kW", EcuContexts.BECM, 2f, com.kadireren.ex30sensorlab.model.ResearchStatus.CONFIRMED)
         onSample(sample(def, "4801 + 4802", String.format(Locale.US, "%.2f kW", power), started, true))
     }
@@ -159,8 +179,8 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
     private fun emitBrakeAverageIfReady(onSample: (SensorSample) -> Unit, started: Long) {
         if (!brakeFallback) return
         val bars = BRAKE_CHANNEL_KEYS.mapNotNull { key ->
-            rawByKey[key]?.let { raw ->
-                ObdDecoders.decode(key, ObdCatalog.confirmed.first { it.key == key }.did, raw)
+            rawByKey[key]?.takeIf { SystemClock.elapsedRealtime() - it.timestampMs <= MAX_DERIVED_SAMPLE_SKEW_MS }?.let { timed ->
+                ObdDecoders.decode(key, ObdCatalog.confirmed.first { it.key == key }.did, timed.raw)
                     ?.removeSuffix(" bar")?.toFloatOrNull()
             }
         }
@@ -181,6 +201,9 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
     companion object {
         private const val BRAKE_MULTI_MAX_FAILURES = 5
         private const val ODOMETER_MAX_FAILURES = 3
+        private const val MAX_DERIVED_SAMPLE_SKEW_MS = 1_000L
+        private const val ERROR_RETRY_DELAY_MS = 1_000L
+        private const val FOCUS_INTERVAL_MS = 33L
         private val BRAKE_CHANNEL_KEYS = listOf("brake_fl", "brake_fr", "brake_rl", "brake_rr")
     }
 }

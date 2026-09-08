@@ -1,6 +1,38 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-03
+Son güncelleme: 2026-09-08
+
+## 2026-09-08 güvenilirlik iyileştirmeleri
+
+- `ElmProtocol` sorguları ve bağlantı doğrulaması aynı kilit altında
+  serileştirildi; polling ve scanner ECU ayarları artık birbirine karışamaz.
+- Polling çalışmalarına nesil kimliği eklendi. Durdurulan eski döngü, hızlı
+  yeniden başlatma sonrasında yeni çalışmanın bayrağıyla devam edemez.
+- Polling durumu yalnız kendi executor'ında sıfırlanıyor; UI iş parçacığından
+  koleksiyon temizleme yarışı kaldırıldı.
+- HCI profil tekrarı, ECU bağlamı olmayan standart Mode 01 sorgularını da
+  gerçekten gönderiyor.
+- HCI profil boyutu/sorgu sayısı ile servis, DID, protokol ve ECU alanları
+  sınırlandı.
+- Türetilmiş HV güç ve ayrı fren kanalları, 1 saniyeden eski veya birbiriyle
+  zaman uyumsuz ham örneklerden artık hesaplanmıyor.
+- Uygulama arka plana geçince scanner ve polling duruyor; OBD ekranlarına geri
+  dönüldüğünde normal polling yeniden başlıyor, scanner otomatik başlamıyor.
+- Eşzamanlı iki ECU sorgusunun seri kaldığını doğrulayan unit test eklendi.
+- Çözülemeyen veya hata veren OBD sorguları için 1 saniyelik kontrollü tekrar
+  gecikmesi eklendi; odak modu kullanıcı isteğiyle en fazla yaklaşık 30
+  sorgu/sn (33 ms aralık) olacak şekilde ayarlandı.
+- Profil sorgusu ve ECU taşıma alanı kuralları saf Kotlin politikasına ayrıldı
+  ve iki unit test ile doğrulandı.
+- AAOS/OBD ayrıntı listesi saniyede bir yenileniyor; veri akışı tamamen
+  kesildiğinde son örnek ekranda yanlışlıkla süresiz `LIVE` kalmıyor.
+- Kullanıcı tercihi: genel ELM `AT` komut kabulü korunacak, odak modu yaklaşık
+  30 sorgu/sn olacak, log gizliliği ve depolama akışı değiştirilmeyecek.
+- Kullanıcının onayladığı koyu tanı arayüzü uygulandı: ortak üst çubuk,
+  durum alanı, renk kodlu ana menü kartları, düğmeler ve sensör kartları aynı
+  görsel dilde birleştirildi. İşlevsel akışlar değiştirilmedi.
+- Doğrulama: 21 Android unit test + 2 Python testi geçti; `lintDebug` ve
+  `assembleDebug` başarılı. Fiziksel EX30/Android-Vlink testi hâlâ gereklidir.
 
 ## Amaç ve değişmez sınırlar
 

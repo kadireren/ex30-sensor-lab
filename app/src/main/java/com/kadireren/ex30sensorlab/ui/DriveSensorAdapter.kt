@@ -1,7 +1,6 @@
 package com.kadireren.ex30sensorlab.ui
 
 import android.content.Context
-import android.graphics.Color
 import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
@@ -67,7 +66,7 @@ class DriveSensorAdapter(
             setPadding(dp(12), dp(10), dp(12), dp(10))
             addView(TextView(context).apply {
                 text = sample.definition.name
-                setTextColor(Color.WHITE)
+                setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_text))
                 textSize = 22f
                 setTypeface(typeface, Typeface.BOLD)
                 maxLines = 2

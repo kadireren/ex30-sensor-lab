@@ -1,11 +1,13 @@
 <resources>
-    <color name="lab_background">#080E15</color>
-    <color name="lab_surface">#101D2E</color>
-    <color name="lab_surface_alt">#15263A</color>
-    <color name="lab_accent">#39C8FF</color>
-    <color name="lab_success">#31D16D</color>
-    <color name="lab_warning">#FFB74D</color>
+    <color name="lab_background">#060B12</color>
+    <color name="lab_surface">#0D1926</color>
+    <color name="lab_surface_alt">#142536</color>
+    <color name="lab_accent">#48CDFB</color>
+    <color name="lab_success">#57E295</color>
+    <color name="lab_warning">#FFC66D</color>
     <color name="lab_error">#FF6B6B</color>
-    <color name="lab_text">#F5F7FA</color>
-    <color name="lab_text_secondary">#AEB9C7</color>
+    <color name="lab_violet">#A99CFF</color>
+    <color name="lab_border">#29435B</color>
+    <color name="lab_text">#F7F9FC</color>
+    <color name="lab_text_secondary">#AEBECB</color>
 </resources>

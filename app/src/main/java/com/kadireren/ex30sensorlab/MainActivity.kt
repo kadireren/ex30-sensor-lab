@@ -12,6 +12,8 @@ import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -77,6 +79,14 @@ class MainActivity : Activity() {
     private var obdSampleSink: ((SensorSample) -> Unit)? = null
     private var obdStateSink: ((String) -> Unit)? = null
     private var obdPollingPausedForScanner = false
+    private var sensorListAdapter: SensorListAdapter? = null
+    private val statusRefreshHandler = Handler(Looper.getMainLooper())
+    private val statusRefresh = object : Runnable {
+        override fun run() {
+            sensorListAdapter?.notifyDataSetChanged()
+            if (sensorListAdapter != null) statusRefreshHandler.postDelayed(this, STATUS_REFRESH_MS)
+        }
+    }
     private var driveAdapter: DriveSensorAdapter? = null
     private var drivePageLabel: TextView? = null
     private var driveSourceVhalButton: Button? = null
@@ -146,6 +156,22 @@ class MainActivity : Activity() {
         super.onDestroy()
     }
 
+    override fun onStop() {
+        stopStatusRefresh()
+        scanner?.stop()
+        obdPolling?.stop()
+        obdPollingPausedForScanner = false
+        super.onStop()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        startStatusRefresh()
+        if (currentPage != Page.SCANNER && obdConnectionState == ObdConnectionState.CONNECTED) {
+            ensureObdPolling()
+        }
+    }
+
     @Deprecated("Deprecated in Android")
     override fun onBackPressed() {
         showHome()
@@ -194,8 +220,8 @@ class MainActivity : Activity() {
             obdRow.addView(actionButton("OBD bağlantısını kes") { disconnectObdConnection(); showHome() })
         }
         root.addView(obdRow)
-        root.addView(label("Tarama yalnız araç sabitken çalışır", 18f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
-            setPadding(0, dp(16), 0, dp(20))
+        root.addView(label("● Scanner güvenlik kapıları etkin   ·   v${appVersionName()}", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+            setPadding(0, dp(14), 0, dp(18))
         })
         setContentView(root)
         if (obdConnectionState == ObdConnectionState.CONNECTED) ensureObdPolling()
@@ -219,6 +245,8 @@ class MainActivity : Activity() {
         }
         root.addView(calibration)
         val adapter = SensorListAdapter(this)
+        sensorListAdapter = adapter
+        startStatusRefresh()
         root.addView(ListView(this).apply {
             dividerHeight = dp(8)
             setPadding(dp(18), 0, dp(18), dp(12))
@@ -361,6 +389,8 @@ class MainActivity : Activity() {
         val root = baseScreen("OBD Verileri", obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val adapter = SensorListAdapter(this)
+        sensorListAdapter = adapter
+        startStatusRefresh()
         val controls = controlRow()
         controls.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showObd() } })
         controls.addView(actionButton("Bağlan ve oku") {
@@ -915,6 +945,8 @@ class MainActivity : Activity() {
     }
 
     private fun stopScreenResources() {
+        sensorListAdapter = null
+        stopStatusRefresh()
         deviceScanner?.stopDiscovery()
         deviceScanner = null
         vhalReader?.stop()
@@ -939,6 +971,16 @@ class MainActivity : Activity() {
     private fun stopActiveScreen(disconnectObd: Boolean = false) {
         stopScreenResources()
         if (disconnectObd) disconnectObdConnection()
+    }
+
+    private fun startStatusRefresh() {
+        if (sensorListAdapter == null) return
+        statusRefreshHandler.removeCallbacks(statusRefresh)
+        statusRefreshHandler.postDelayed(statusRefresh, STATUS_REFRESH_MS)
+    }
+
+    private fun stopStatusRefresh() {
+        statusRefreshHandler.removeCallbacks(statusRefresh)
     }
 
     private fun openProfile() {
@@ -1092,28 +1134,42 @@ class MainActivity : Activity() {
 
     private fun powerMultiplier(): Int = getSharedPreferences("lab", MODE_PRIVATE).getInt("vhal_power_multiplier", 0)
 
+    private fun appVersionName(): String = try {
+        packageManager.getPackageInfo(packageName, 0).versionName ?: "?"
+    } catch (_: Exception) {
+        "?"
+    }
+
     private fun baseScreen(title: String, status: String, back: Boolean): LinearLayout = LinearLayout(this).apply {
         orientation = LinearLayout.VERTICAL
         setBackgroundColor(color(R.color.lab_background))
         addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            setPadding(dp(20), dp(12), dp(20), dp(10))
+            setPadding(dp(24), dp(15), dp(24), dp(14))
+            setBackgroundColor(color(R.color.lab_surface))
             if (back) addView(actionButton("‹ Ana menü") { showHome() })
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
-                addView(label(title, 28f, Color.WHITE).apply { setTypeface(typeface, Typeface.BOLD) })
-                addView(label(status, 17f, color(R.color.lab_text_secondary)).apply { tag = "status" })
+                addView(label("VEHICLE DIAGNOSTICS", 11f, color(R.color.lab_accent)).apply {
+                    setTypeface(typeface, Typeface.BOLD)
+                    letterSpacing = 0.12f
+                })
+                addView(label(title, 29f, color(R.color.lab_text)).apply {
+                    setTypeface(typeface, Typeface.BOLD)
+                    setPadding(0, dp(2), 0, dp(2))
+                })
+                addView(label(status, 16f, color(R.color.lab_text_secondary)).apply { tag = "status" })
             }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             addView(TextView(this@MainActivity).apply {
                 tag = "obd_indicator"
                 text = obdIndicatorText()
                 setTextColor(obdIndicatorColor())
-                textSize = 20f
+                textSize = 17f
                 setTypeface(typeface, Typeface.BOLD)
                 gravity = Gravity.CENTER
                 setPadding(dp(16), dp(10), dp(16), dp(10))
-                minWidth = dp(132)
+                minWidth = dp(146)
                 background = obdIndicatorBackground()
                 obdStatusView = this
             })
@@ -1134,27 +1190,40 @@ class MainActivity : Activity() {
     }
 
     private fun menuCard(number: String, title: String, subtitle: String, click: () -> Unit): View = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        gravity = Gravity.CENTER_HORIZONTAL
-        setPadding(dp(16), dp(12), dp(16), dp(12))
-        background = rounded(color(R.color.lab_surface), color(R.color.lab_accent), dp(18))
+        val tileColor = when (number) {
+            "2" -> color(R.color.lab_success)
+            "3" -> color(R.color.lab_warning)
+            "4" -> color(R.color.lab_violet)
+            else -> color(R.color.lab_accent)
+        }
+        orientation = LinearLayout.HORIZONTAL
+        gravity = Gravity.CENTER_VERTICAL
+        setPadding(dp(20), dp(18), dp(20), dp(18))
+        background = rounded(color(R.color.lab_surface), color(R.color.lab_border), dp(18))
         isClickable = true
         isFocusable = true
         setOnClickListener { click() }
-        addView(label(title, 22f, Color.WHITE, Gravity.CENTER).apply {
+        addView(label(number, 24f, color(R.color.lab_background), Gravity.CENTER).apply {
             setTypeface(typeface, Typeface.BOLD)
-            maxLines = 2
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        })
-        addView(label(number, 30f, color(R.color.lab_accent), Gravity.CENTER).apply {
-            setTypeface(typeface, Typeface.BOLD)
-            setPadding(0, dp(6), 0, dp(4))
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        })
-        addView(label(subtitle, 14f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
-            maxLines = 2
-            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
-        })
+            background = rounded(tileColor, tileColor, dp(13))
+        }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(18) })
+        addView(LinearLayout(this@MainActivity).apply {
+            orientation = LinearLayout.VERTICAL
+            addView(label(title, 22f, color(R.color.lab_text)).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                maxLines = 2
+            })
+            addView(label(subtitle, 14f, color(R.color.lab_text_secondary)).apply {
+                setPadding(0, dp(5), 0, dp(8))
+                maxLines = 2
+            })
+            addView(label(when (number) {
+                "1" -> "VHAL SENSÖRLERİ  →"
+                "2" -> "CANLI OKUMA  →"
+                "3" -> "YALNIZ ARAÇ SABİTKEN  →"
+                else -> "BÜYÜK VE SADE  →"
+            }, 12f, tileColor).apply { setTypeface(typeface, Typeface.BOLD) })
+        }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
     private fun controlRow() = LinearLayout(this).apply {
@@ -1168,8 +1237,8 @@ class MainActivity : Activity() {
         setTextColor(Color.WHITE)
         textSize = 17f
         isAllCaps = false
-        background = rounded(color(R.color.lab_surface_alt), color(R.color.lab_accent), dp(10))
-        setPadding(dp(14), 0, dp(14), 0)
+        background = rounded(color(R.color.lab_surface_alt), color(R.color.lab_border), dp(11))
+        setPadding(dp(16), 0, dp(16), 0)
         setOnClickListener { click() }
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(52)).apply { marginEnd = dp(10) }
     }
@@ -1357,6 +1426,7 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 
     companion object {
+        private const val STATUS_REFRESH_MS = 1_000L
         private const val REQUEST_PERMISSIONS = 1001
         private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f

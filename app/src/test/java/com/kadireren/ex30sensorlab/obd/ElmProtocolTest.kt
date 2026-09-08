@@ -4,6 +4,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 import java.io.IOException
 import java.net.SocketTimeoutException
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Executors
+import java.util.concurrent.TimeUnit
 
 class ElmProtocolTest {
     @Test fun initializesAndSwitchesContextInOrder() {
@@ -59,6 +63,50 @@ class ElmProtocolTest {
         protocol.query(EcuContexts.BECM, "22F190")
         assertEquals("ATI", traces.first().first)
         assertEquals("[REDACTED]", com.kadireren.ex30sensorlab.logging.LogEncoding.redact(traces.last().first, traces.last().second))
+    }
+
+    @Test fun serializesConcurrentQueriesAcrossEcuContexts() {
+        val firstQueryEntered = CountDownLatch(1)
+        val releaseFirstQuery = CountDownLatch(1)
+        val transport = BlockingTransport(firstQueryEntered, releaseFirstQuery)
+        val protocol = ElmProtocol(transport)
+        protocol.connect(verifyLink = false)
+        val executor = Executors.newFixedThreadPool(2)
+
+        val first = executor.submit<String> { protocol.query(EcuContexts.BECM, "224801") }
+        org.junit.Assert.assertTrue(firstQueryEntered.await(1, TimeUnit.SECONDS))
+        val second = executor.submit<String> { protocol.query(EcuContexts.ECU_E, "22F40D") }
+        Thread.sleep(50L)
+        org.junit.Assert.assertFalse(transport.commands.contains("ATSHD01701"))
+
+        releaseFirstQuery.countDown()
+        assertEquals("624801A73A", first.get(1, TimeUnit.SECONDS))
+        assertEquals("62F40D00", second.get(1, TimeUnit.SECONDS))
+        org.junit.Assert.assertTrue(transport.commands.indexOf("22F40D") > transport.commands.indexOf("224801"))
+        executor.shutdownNow()
+    }
+
+    private class BlockingTransport(
+        private val firstQueryEntered: CountDownLatch,
+        private val releaseFirstQuery: CountDownLatch,
+    ) : ElmTransport {
+        val commands: MutableList<String> = Collections.synchronizedList(mutableListOf())
+        override var isConnected = false
+        override fun connect(deviceIdentifier: String) { isConnected = true }
+        override fun send(command: String, timeoutMs: Long): String {
+            commands += command
+            if (command == "224801") {
+                firstQueryEntered.countDown()
+                releaseFirstQuery.await(1, TimeUnit.SECONDS)
+                return "624801A73A"
+            }
+            return when (command) {
+                "ATI" -> "ELM327 v2.3"
+                "22F40D" -> "62F40D00"
+                else -> "OK"
+            }
+        }
+        override fun close() { isConnected = false }
     }
 
     private class FakeTransport(

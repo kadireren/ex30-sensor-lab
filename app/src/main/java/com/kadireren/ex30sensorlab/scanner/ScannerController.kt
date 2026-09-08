@@ -72,8 +72,7 @@ class ScannerController(
             if (!running.get()) break
             requireSafe()
             onState("Profil oynatma ${index + 1}/${profile.queries.size}")
-            val ecu = query.ecu ?: continue
-            query(ecu, "${query.service}${query.did}", query.did, onEvent)
+            query(query.ecu, "${query.service}${query.did}", query.did, onEvent)
             SystemClock.sleep(333L)
         }
     }
@@ -102,12 +101,12 @@ class ScannerController(
         check(state.scannerAllowed) { state.denialReason() }
     }
 
-    private fun query(ecu: EcuContext, command: String, did: String, onEvent: (ScanEvent) -> Unit) {
+    private fun query(ecu: EcuContext?, command: String, did: String, onEvent: (ScanEvent) -> Unit) {
         val raw = protocol.query(ecu, command)
         val positive = ObdDecoders.isPositiveResponse(raw, did)
-        val key = "${ecu.header}:$did"
+        val key = "${ecu?.header ?: "MODE01"}:$did"
         val previous = lastPositiveResponse[key]
-        val confirmed = ObdCatalog.confirmed.any { it.ecu?.header == ecu.header && it.did == did }
+        val confirmed = ObdCatalog.confirmed.any { it.ecu?.header == ecu?.header && it.did == did }
         val nrc = ObdDecoders.negativeResponseCode(raw)
         val classification = when {
             positive && confirmed -> "doğrulandı"
@@ -117,6 +116,6 @@ class ScannerController(
             else -> "aday"
         }
         if (positive) lastPositiveResponse[key] = raw
-        onEvent(ScanEvent(SystemClock.elapsedRealtime(), ecu.name, command, raw, positive, classification))
+        onEvent(ScanEvent(SystemClock.elapsedRealtime(), ecu?.name ?: "Standart OBD", command, raw, positive, classification))
     }
 }

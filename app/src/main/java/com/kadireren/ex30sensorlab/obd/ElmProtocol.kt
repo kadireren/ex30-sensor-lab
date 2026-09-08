@@ -37,6 +37,7 @@ class ElmProtocol(
         currentProtocol = null
     }
 
+    @Synchronized
     fun query(ecu: EcuContext?, command: String, timeoutMs: Long = 2_500L): String {
         check(initialized && transport.isConnected) { "ELM327 hazır değil" }
         val safe = ElmCommandPolicy.requireAllowed(command)
@@ -73,6 +74,7 @@ class ElmProtocol(
         currentProtocol = null
     }
 
+    @Synchronized
     fun verifyLink() {
         check(initialized && transport.isConnected) { "ELM327 hazır değil" }
         verifyBecmLink()

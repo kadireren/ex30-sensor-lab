@@ -43,13 +43,13 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
             setPadding(dp(18), dp(12), dp(18), dp(12))
             background = GradientDrawable().apply {
                 cornerRadius = dp(12).toFloat()
-                setColor(if (sample.definition.key == focusedKey) Color.rgb(20, 62, 86) else Color.rgb(16, 29, 46))
+                setColor(if (sample.definition.key == focusedKey) context.getColor(com.kadireren.ex30sensorlab.R.color.lab_surface_alt) else context.getColor(com.kadireren.ex30sensorlab.R.color.lab_surface))
                 setStroke(dp(1), statusColor(effectiveStatus))
             }
         }
         root.addView(TextView(context).apply {
             text = sample.definition.name
-            setTextColor(Color.WHITE)
+            setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_text))
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
         })
@@ -58,7 +58,7 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
             gravity = Gravity.CENTER_VERTICAL
             addView(TextView(context).apply {
                 text = sample.displayValue
-                setTextColor(Color.rgb(57, 200, 255))
+                setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_accent))
                 textSize = 17f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
@@ -70,7 +70,7 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
         })
         root.addView(TextView(context).apply {
             text = "${sample.definition.identifier} · ham: ${sample.rawValue} · ${sample.detail}"
-            setTextColor(Color.rgb(174, 185, 199))
+            setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_text_secondary))
             textSize = 12f
             maxLines = 3
         })
@@ -79,10 +79,10 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
     }
 
     private fun statusColor(status: SampleStatus): Int = when (status) {
-        SampleStatus.LIVE -> Color.rgb(49, 209, 109)
-        SampleStatus.ERROR, SampleStatus.PERMISSION_DENIED -> Color.rgb(255, 107, 107)
+        SampleStatus.LIVE -> context.getColor(com.kadireren.ex30sensorlab.R.color.lab_success)
+        SampleStatus.ERROR, SampleStatus.PERMISSION_DENIED -> context.getColor(com.kadireren.ex30sensorlab.R.color.lab_error)
         SampleStatus.UNSUPPORTED -> Color.DKGRAY
-        else -> Color.rgb(57, 200, 255)
+        else -> context.getColor(com.kadireren.ex30sensorlab.R.color.lab_accent)
     }
 
     private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
