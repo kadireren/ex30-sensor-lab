@@ -5,6 +5,7 @@ import android.app.Activity
 import android.app.AlertDialog
 import android.car.Car
 import android.car.hardware.property.CarPropertyManager
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.graphics.Typeface
@@ -943,28 +944,48 @@ class MainActivity : Activity() {
     private fun openProfile() {
         val files = DownloadStorage.listJsonFiles(this)
         if (files.isEmpty()) {
-            showScrollableHelpDialog(
-                "HCI profili bulunamadı",
-                buildString {
-                    appendLine("Henüz Download klasöründe profil yok.")
-                    appendLine()
-                    append("Mac/PC'deki ex30-profile.json dosyasını USB bellek veya dosya yöneticisi ile şuraya kopyalayın:")
-                    appendLine()
-                    appendLine()
-                    append(DownloadStorage.displayPath())
-                    appendLine()
-                    appendLine("Kopyaladıktan sonra «HCI profili içe aktar» düğmesine tekrar basın.")
-                },
-            )
+            AlertDialog.Builder(this)
+                .setTitle("HCI profili bulunamadı")
+                .setMessage(
+                    buildString {
+                        appendLine("Download klasöründe .json bulunamadı.")
+                        appendLine()
+                        appendLine("Dosyayı şuraya kopyalayın:")
+                        appendLine("Download/EX30SensorLab/ex30-profile.json")
+                        appendLine("veya doğrudan Download/ex30-profile.json")
+                        appendLine()
+                        append(DownloadStorage.scanDiagnostics(this@MainActivity))
+                    },
+                )
+                .setPositiveButton("Manuel seç") { _, _ -> openProfilePicker() }
+                .setNegativeButton("Kapat", null)
+                .show()
             return
         }
         AlertDialog.Builder(this)
             .setTitle("Download klasöründen profil seç")
-            .setItems(files.map { it.name }.toTypedArray()) { _, index ->
+            .setItems(files.map { entry ->
+                when (entry) {
+                    is DownloadStorage.Entry.Legacy -> entry.name
+                    is DownloadStorage.Entry.Media -> entry.name
+                }
+            }.toTypedArray()) { _, index ->
                 loadProfile(files[index])
             }
+            .setNeutralButton("Manuel seç") { _, _ -> openProfilePicker() }
             .setNegativeButton("İptal", null)
             .show()
+    }
+
+    private fun openProfilePicker() {
+        startActivityForResult(
+            Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
+                addCategory(Intent.CATEGORY_OPENABLE)
+                type = "application/json"
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            },
+            REQUEST_PROFILE,
+        )
     }
 
     private fun loadProfile(entry: DownloadStorage.Entry) {
@@ -974,6 +995,28 @@ class MainActivity : Activity() {
             scannerStatus?.text = "Profil hazır: ${importedProfile?.queries?.size ?: 0} salt-okunur sorgu"
             importedProfile?.let(::showProfileReview)
             scannerWorkflowView?.text = buildScannerWorkflowText()
+        } catch (e: Exception) {
+            scannerStatus?.text = "Profil reddedildi: ${e.message}"
+            toast("Profil okunamadı: ${e.message}")
+        }
+    }
+
+    private fun loadProfileText(text: String) {
+        importedProfile = ScanProfileParser.parse(text)
+        scannerStatus?.text = "Profil hazır: ${importedProfile?.queries?.size ?: 0} salt-okunur sorgu"
+        importedProfile?.let(::showProfileReview)
+        scannerWorkflowView?.text = buildScannerWorkflowText()
+    }
+
+    @Deprecated("Deprecated in Android")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != REQUEST_PROFILE || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            val text = contentResolver.openInputStream(uri)?.bufferedReader()?.use { it.readText() }
+                ?: error("Profil okunamadı")
+            loadProfileText(text)
         } catch (e: Exception) {
             scannerStatus?.text = "Profil reddedildi: ${e.message}"
             toast("Profil okunamadı: ${e.message}")
@@ -1012,10 +1055,10 @@ class MainActivity : Activity() {
             try {
                 val exported = files.map { DownloadStorage.exportFile(this, it) }
                 runOnUiThread {
-                    toast(
-                        "${exported.size} dosya ${DownloadStorage.displayPath()} klasörüne yazıldı:\n" +
-                            exported.joinToString("\n") { it.name },
-                    )
+                    val paths = exported.joinToString("\n") { file ->
+                        if (file.absolutePath.isNotBlank()) file.absolutePath else "${DownloadStorage.displayPath()}/${file.name}"
+                    }
+                    toast("${exported.size} dosya Download'a yazıldı:\n$paths")
                 }
             } catch (e: Exception) {
                 runOnUiThread { toast("Download'a aktarılamadı: ${e.message}") }
@@ -1031,8 +1074,11 @@ class MainActivity : Activity() {
         )
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_CONNECT
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) permissions += Manifest.permission.BLUETOOTH_SCAN
-        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.TIRAMISU) {
             permissions += Manifest.permission.READ_EXTERNAL_STORAGE
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.S_V2) {
+            permissions += Manifest.permission.WRITE_EXTERNAL_STORAGE
         }
         val missing = permissions.distinct().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isNotEmpty()) requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
@@ -1312,6 +1358,7 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
 
     companion object {
         private const val REQUEST_PERMISSIONS = 1001
+        private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f
         private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.DRIVE)
     }
