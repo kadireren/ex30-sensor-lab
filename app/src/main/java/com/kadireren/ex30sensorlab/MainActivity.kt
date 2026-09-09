@@ -52,6 +52,7 @@ import com.kadireren.ex30sensorlab.obd.EcuContexts
 import com.kadireren.ex30sensorlab.obd.ElmProtocol
 import com.kadireren.ex30sensorlab.obd.ObdDeviceEntry
 import com.kadireren.ex30sensorlab.obd.ObdPollingController
+import com.kadireren.ex30sensorlab.obd.ObdPreferredDevice
 import com.kadireren.ex30sensorlab.scanner.ScanProfileParser
 import com.kadireren.ex30sensorlab.scanner.ScannerController
 import com.kadireren.ex30sensorlab.ui.DriveSensorAdapter
@@ -92,6 +93,9 @@ class MainActivity : Activity() {
     private var obdSampleSink: ((SensorSample) -> Unit)? = null
     private var obdStateSink: ((String) -> Unit)? = null
     private var obdPollingPausedForScanner = false
+    private var pendingLaunchAutoConnect = true
+    private var preferredDiscoveryActive = false
+    private val autoConnectHandler = Handler(Looper.getMainLooper())
     private var sensorListAdapter: SensorListAdapter? = null
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
@@ -124,6 +128,7 @@ class MainActivity : Activity() {
         connectCar()
         loadDiscoveryStore()
         showHome()
+        window.decorView.post { attemptPreferredObdAutoConnect() }
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -185,6 +190,7 @@ class MainActivity : Activity() {
     override fun onStart() {
         super.onStart()
         startStatusRefresh()
+        if (pendingLaunchAutoConnect) attemptPreferredObdAutoConnect()
         if (currentPage != Page.SCANNER && obdConnectionState == ObdConnectionState.CONNECTED) {
             ensureObdPolling()
         }
@@ -244,7 +250,10 @@ class MainActivity : Activity() {
         )
         root.addView(row3, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.85f))
         val obdRow = controlRow()
-        obdRow.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showHome() } })
+        obdRow.addView(actionButton("OBD'ye bağlan") {
+            tryConnectPreferredObd(returnTo = { showHome() }, showListOnFailure = true)
+        })
+        obdRow.addView(actionButton("Diğer cihazlar") { showObdDevices { showHome() } })
         if (obdConnectionState == ObdConnectionState.CONNECTED) {
             obdRow.addView(actionButton("OBD bağlantısını kes") { disconnectObdConnection(); showHome() })
         }
@@ -421,11 +430,14 @@ class MainActivity : Activity() {
         sensorListAdapter = adapter
         startStatusRefresh()
         val controls = controlRow()
-        controls.addView(actionButton("OBD cihazlarını tara") { showObdDevices { showObd() } })
+        controls.addView(actionButton("OBD'ye bağlan") {
+            tryConnectPreferredObd(returnTo = { showObd() }, showListOnFailure = true)
+        })
+        controls.addView(actionButton("Diğer cihazlar") { showObdDevices { showObd() } })
         controls.addView(actionButton("Bağlan ve oku") {
             if (obdConnectionState != ObdConnectionState.CONNECTED) {
-                toast("Önce bir OBD cihazı seçin")
-                showObdDevices { showObd() }
+                toast("Önce OBD adaptörüne bağlanın")
+                tryConnectPreferredObd(returnTo = { showObd() }, showListOnFailure = true)
                 return@actionButton
             }
             status.text = "OBD okuma başlatılıyor…"
@@ -484,7 +496,7 @@ class MainActivity : Activity() {
         controls.addView(actionButton("Bağlan ve oku") {
             if (obdConnectionState != ObdConnectionState.CONNECTED) {
                 toast("Önce OBD adaptörüne bağlanın")
-                showObdDevices { showMotorSensors() }
+                tryConnectPreferredObd(returnTo = { showMotorSensors() }, showListOnFailure = true)
                 return@actionButton
             }
             if (state.confirmedSensors.isEmpty()) {
@@ -555,9 +567,7 @@ class MainActivity : Activity() {
         fun ensureScannerReady(): Boolean {
             if (obdConnectionState != ObdConnectionState.CONNECTED) {
                 toast("Önce OBD adaptörüne bağlanın")
-                showObdDevices {
-                    showScanner()
-                }
+                tryConnectPreferredObd(returnTo = { showScanner() }, showListOnFailure = true, statusOverride = status)
                 return false
             }
             if (scanner == null) {
@@ -612,7 +622,7 @@ class MainActivity : Activity() {
             "EX30 adaptörü (Android-Vlink). Bağlantı kurulunca scanner hazırlanır.",
             compact = true,
         ) {
-            showObdDevices {
+            tryConnectPreferredObd(returnTo = {
                 if (obdConnectionState == ObdConnectionState.CONNECTED) {
                     logger?.close()
                     logger = SessionLogger(this).also { it.start("scanner") }
@@ -620,7 +630,7 @@ class MainActivity : Activity() {
                 }
                 refreshWorkflow()
                 showScanner()
-            }
+            }, showListOnFailure = true, statusOverride = status)
         })
         faz1Row.addView(scannerActionRow(
             "HCI profili içe aktar",
@@ -772,6 +782,113 @@ class MainActivity : Activity() {
         if (obdConnectionState == ObdConnectionState.CONNECTED) ensureObdPolling()
     }
 
+    private fun hasBluetoothPermissions(): Boolean =
+        requiredBluetoothPermissions().all { checkSelfPermission(it) == PackageManager.PERMISSION_GRANTED }
+
+    private fun obdConnectionStatusView(fallback: TextView? = null): TextView =
+        fallback ?: obdStatusView ?: TextView(this)
+
+    private fun attemptPreferredObdAutoConnect() {
+        if (!pendingLaunchAutoConnect) return
+        if (obdConnectionState != ObdConnectionState.DISCONNECTED) {
+            pendingLaunchAutoConnect = false
+            return
+        }
+        if (!hasBluetoothPermissions()) return
+        pendingLaunchAutoConnect = false
+        tryConnectPreferredObd(returnTo = { refreshObdIndicator() }, showListOnFailure = false, quiet = true)
+    }
+
+    private fun tryConnectPreferredObd(
+        returnTo: () -> Unit,
+        showListOnFailure: Boolean,
+        statusOverride: TextView? = null,
+        quiet: Boolean = false,
+    ) {
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            returnTo()
+            return
+        }
+        if (obdConnectionState == ObdConnectionState.CONNECTING) return
+        if (!ensureBluetoothPermissions(statusOverride)) {
+            if (showListOnFailure) showObdDevices(returnTo)
+            return
+        }
+        cancelPreferredDiscovery()
+        val scanner = BluetoothObdDeviceScanner(this)
+        val preferred = ObdPreferredDevice.resolve(this, scanner)
+        val status = obdConnectionStatusView(statusOverride)
+        if (preferred != null) {
+            if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} bağlanıyor…")
+            connectObdToDevice(preferred, status) {
+                cancelPreferredDiscovery()
+                if (!quiet) toast("OBD bağlantısı kuruldu · ${preferred.name}")
+                returnTo()
+            }
+            return
+        }
+        if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} aranıyor…")
+        discoverPreferredObd(scanner, status, returnTo, showListOnFailure, quiet)
+    }
+
+    private fun discoverPreferredObd(
+        scanner: BluetoothObdDeviceScanner,
+        status: TextView?,
+        returnTo: () -> Unit,
+        showListOnFailure: Boolean,
+        quiet: Boolean,
+    ) {
+        var connecting = false
+        preferredDiscoveryActive = true
+        deviceScanner = scanner
+        status?.text = "${ObdPreferredDevice.DISPLAY_NAME} aranıyor…"
+        val timeout = Runnable {
+            if (!preferredDiscoveryActive || connecting || obdConnectionState == ObdConnectionState.CONNECTED) return@Runnable
+            cancelPreferredDiscovery()
+            if (showListOnFailure) {
+                if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} bulunamadı · cihaz listesi açılıyor")
+                showObdDevices(returnTo)
+            } else if (!quiet) {
+                toast("${ObdPreferredDevice.DISPLAY_NAME} bulunamadı")
+            }
+        }
+        autoConnectHandler.postDelayed(timeout, PREFERRED_DISCOVERY_TIMEOUT_MS)
+        try {
+            scanner.startDiscovery(
+                onFound = { entry ->
+                    if (!preferredDiscoveryActive || !ObdPreferredDevice.isPreferred(entry)) return@startDiscovery
+                    if (connecting || obdConnectionState != ObdConnectionState.DISCONNECTED) return@startDiscovery
+                    connecting = true
+                    autoConnectHandler.removeCallbacks(timeout)
+                    runOnUiThread {
+                        connectObdToDevice(entry, obdConnectionStatusView(status)) {
+                            cancelPreferredDiscovery()
+                            if (!quiet) toast("OBD bağlantısı kuruldu · ${entry.name}")
+                            returnTo()
+                        }
+                    }
+                },
+                onFinished = {
+                    if (!connecting && preferredDiscoveryActive && obdConnectionState == ObdConnectionState.DISCONNECTED) {
+                        autoConnectHandler.postDelayed(timeout, 500L)
+                    }
+                },
+            )
+        } catch (e: Exception) {
+            cancelPreferredDiscovery()
+            if (showListOnFailure) showObdDevices(returnTo)
+            else if (!quiet) toast("Bluetooth taraması başlatılamadı: ${e.message}")
+        }
+    }
+
+    private fun cancelPreferredDiscovery() {
+        if (!preferredDiscoveryActive) return
+        preferredDiscoveryActive = false
+        autoConnectHandler.removeCallbacksAndMessages(null)
+        deviceScanner?.stopDiscovery()
+        deviceScanner = null
+    }
+
     private fun showObdDevices(returnTo: () -> Unit) {
         stopScreenResources()
         currentPage = null
@@ -786,8 +903,11 @@ class MainActivity : Activity() {
 
         fun refreshList() {
             rows.clear()
-            devices.values.sortedWith(compareByDescending<ObdDeviceEntry> { it.bonded }.thenBy { it.name.lowercase() })
-                .forEach { entry ->
+            devices.values.sortedWith(
+                compareByDescending<ObdDeviceEntry> { ObdPreferredDevice.isPreferred(it) }
+                    .thenByDescending { it.bonded }
+                    .thenBy { it.name.lowercase() },
+            ).forEach { entry ->
                     val prefix = if (entry.bonded) "● Eşleşmiş" else "○ Keşfedildi"
                     rows += "$prefix · ${entry.name} · ${entry.address}"
                 }
@@ -856,7 +976,9 @@ class MainActivity : Activity() {
             setPadding(dp(18), 0, dp(18), dp(12))
             setOnItemClickListener { _, _, position, _ ->
                 val sorted = devices.values.sortedWith(
-                    compareByDescending<ObdDeviceEntry> { it.bonded }.thenBy { it.name.lowercase() },
+                    compareByDescending<ObdDeviceEntry> { ObdPreferredDevice.isPreferred(it) }
+                        .thenByDescending { it.bonded }
+                        .thenBy { it.name.lowercase() },
                 )
                 if (position >= sorted.size) return@setOnItemClickListener
                 val entry = sorted[position]
@@ -874,6 +996,7 @@ class MainActivity : Activity() {
 
     private fun connectObdToDevice(entry: ObdDeviceEntry, status: TextView, onConnected: () -> Unit = {}) {
         if (!ensureBluetoothPermissions(status)) return
+        cancelPreferredDiscovery()
         deviceScanner?.stopDiscovery()
         obdDeviceName = entry.name
         obdDeviceAddress = entry.address
@@ -891,6 +1014,7 @@ class MainActivity : Activity() {
                 elmProtocol = protocol
                 obdAdapterId = id.lineSequence().firstOrNull()?.trim().orEmpty().ifBlank { "ELM327" }
                 runOnUiThread {
+                    ObdPreferredDevice.remember(this@MainActivity, entry)
                     setObdConnectionState(ObdConnectionState.CONNECTED)
                     status.text = "● Bağlı: ${entry.name} · $obdAdapterId"
                     ensureObdPolling(forceRestart = true)
@@ -987,6 +1111,7 @@ class MainActivity : Activity() {
     }
 
     private fun disconnectObdConnection() {
+        cancelPreferredDiscovery()
         obdPolling?.close()
         obdPolling = null
         obdPollingPausedForScanner = false
@@ -1753,6 +1878,7 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
         private const val REQUEST_PERMISSIONS = 1001
         private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f
+        private const val PREFERRED_DISCOVERY_TIMEOUT_MS = 10_000L
         private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.MOTOR, Page.DRIVE)
     }
 }
