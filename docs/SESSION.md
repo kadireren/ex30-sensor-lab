@@ -1,9 +1,26 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-08
+Son güncelleme: 2026-09-09
 
 **Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
 bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
+
+## 2026-09-09 UI ve VHAL sadeleştirme
+
+- **Android-Vlink otomatik bağlantı** (`ObdPreferredDevice`): ana menü «OBD'ye
+  bağlan» önce eşleşmiş veya kayıtlı MAC dener; yoksa kısa tarama. Uygulama
+  açılışında (izin varsa) sessiz otomatik deneme. «Diğer cihazlar» manuel listeyi
+  açar.
+- **Motor keşif (Faz 1–3, v1.0.11):** HCI replay → kalibrasyon → Motor sensörleri
+  LIVE; kalıcı `Download/EX30SensorLab/discovered_sensors.json`.
+- **VHAL katalog:** AAOS/emülatörde desteklenmeyen üç property kaldırıldı:
+  `HV_BATTERY_VOLTAGE`, `HV_BATTERY_CURRENT`, `ABS_VEHICLE_SPEED`. `VhalCatalog`
+  artık **14** sensör (HV voltaj/akım OBD `4801`/`4802` üzerinden okunmaya devam).
+- **Ana menü:** «OBD bağlantısını kes» ve «Uygulamadan çıkış» (`finishAffinity`)
+  eklendi; OBD kesme/bağlanma ana menüden yönetilir.
+- **OBD Verileri ekranı:** üst kontrol satırında yalnız «Download'a aktar» kaldı;
+  bağlıyken ekrana girince otomatik polling başlar. Odak modu liste dokunuşu ile
+  sürer.
 
 ## 2026-09-08 güvenilirlik iyileştirmeleri
 
@@ -65,7 +82,7 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 
 ## Uygulanan yapı
 
-- `vhal/`: 17 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil); destek/izin,
+- `vhal/`: 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil); destek/izin,
   ham ve dönüştürülmüş değer, örnek yaşı/gecikme, hedef ve gerçek Hz; güç yönü
   kullanıcı kalibrasyonu.
 - `obd/`: Classic Bluetooth SPP ile eşleştirilmiş `Android-Vlink` bağlantısı,

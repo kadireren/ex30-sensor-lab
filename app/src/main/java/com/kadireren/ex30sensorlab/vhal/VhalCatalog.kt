@@ -28,9 +28,6 @@ object VhalCatalog {
         v(VehiclePropertyIds.PERF_VEHICLE_SPEED_DISPLAY, "PERF_VEHICLE_SPEED_DISPLAY", Car.PERMISSION_SPEED, "m/s", 10f, "Gösterge hızı"),
         v(VehiclePropertyIds.EV_BATTERY_INSTANTANEOUS_CHARGE_RATE, "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", Car.PERMISSION_ENERGY, "mW", 30f, "Batarya gücü"),
         v(VehiclePropertyIds.WHEEL_TICK, "WHEEL_TICK", Car.PERMISSION_SPEED, "ticks[]", 10f, "Tekerlek tick"),
-        v(Ex30VhalIds.HV_BATTERY_VOLTAGE, "HV_BATTERY_VOLTAGE", Car.PERMISSION_ENERGY, "V", 2f, "HV voltaj (VHAL)"),
-        v(Ex30VhalIds.HV_BATTERY_CURRENT, "HV_BATTERY_CURRENT", Car.PERMISSION_ENERGY, "A", 2f, "HV akım (VHAL)"),
-        v(Ex30VhalIds.ABS_VEHICLE_SPEED_KMH, "ABS_VEHICLE_SPEED", Car.PERMISSION_SPEED, "km/h", 10f, "ABS hızı"),
     )
 
     private fun v(id: Int, name: String, permission: String, unit: String, hz: Float, label: String) =

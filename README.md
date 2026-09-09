@@ -6,10 +6,13 @@ uygulaması.
 
 ## Ekranlar
 
-- **AAOS Verileri:** 17 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil).
-- **OBD Verileri:** Doğrulanmış EX30 ECU/DID değerleri ve odak modu.
-- **OBD Scanner:** Aday izleme, kısa ECU yoklama, en fazla 256 DID taraması ve
-  HCI profil tekrarı.
+- **AAOS Verileri:** 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil).
+- **OBD Verileri:** Doğrulanmış EX30 ECU/DID değerleri; üstte yalnız log export.
+  Bağlantı ana menüden; ekrana girince otomatik okuma.
+- **Sensör Keşfi / Motor sensörleri:** HCI replay, kalibrasyon, onaylı motor DID
+  LIVE (Faz 1–3).
+- **Ana menü:** OBD'ye bağlan (Android-Vlink öncelikli), Diğer cihazlar, OBD
+  kes, uygulamadan çıkış.
 
 Tarayıcı yalnız `READY/ON`, hız 0 ve park freni aktifken çalışır. ECU'ya veri
 yazan UDS servisleri kabul edilmez.

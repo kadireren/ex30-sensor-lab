@@ -174,7 +174,7 @@ Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4
 
 | Alan | Durum |
 |------|--------|
-| VHAL okuma | Dashboard ile aynı 17 tanım (`VhalCatalog`) |
+| VHAL okuma | Dashboard kanıtlı 14 tanım (`VhalCatalog`; HV V/ A ve ABS hız VHAL'den kaldırıldı) |
 | OBD bağlantı | IOS-Vlink / `Android-Vlink`, ELM init, BECM link testi |
 | OBD polling | ECU batch, türetilmiş HV güç, fren fallback |
 | Sensör Keşfi UI | Adım adım: VHAL probe, OBD keşif, motor DID taraması, HCI rehberi |

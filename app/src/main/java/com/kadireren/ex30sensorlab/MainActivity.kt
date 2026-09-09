@@ -254,10 +254,18 @@ class MainActivity : Activity() {
             tryConnectPreferredObd(returnTo = { showHome() }, showListOnFailure = true)
         })
         obdRow.addView(actionButton("Diğer cihazlar") { showObdDevices { showHome() } })
-        if (obdConnectionState == ObdConnectionState.CONNECTED) {
-            obdRow.addView(actionButton("OBD bağlantısını kes") { disconnectObdConnection(); showHome() })
-        }
         root.addView(obdRow)
+        val obdRow2 = controlRow()
+        obdRow2.addView(actionButton("OBD bağlantısını kes") {
+            if (obdConnectionState == ObdConnectionState.CONNECTED) {
+                disconnectObdConnection()
+                showHome()
+            } else {
+                toast("OBD bağlı değil")
+            }
+        })
+        obdRow2.addView(actionButton("Uygulamadan çıkış") { exitApp() })
+        root.addView(obdRow2)
         root.addView(label("● Scanner güvenlik kapıları etkin   ·   v${appVersionName()}", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(14), 0, dp(18))
         })
@@ -430,33 +438,8 @@ class MainActivity : Activity() {
         sensorListAdapter = adapter
         startStatusRefresh()
         val controls = controlRow()
-        controls.addView(actionButton("OBD'ye bağlan") {
-            tryConnectPreferredObd(returnTo = { showObd() }, showListOnFailure = true)
-        })
-        controls.addView(actionButton("Diğer cihazlar") { showObdDevices { showObd() } })
-        controls.addView(actionButton("Bağlan ve oku") {
-            if (obdConnectionState != ObdConnectionState.CONNECTED) {
-                toast("Önce OBD adaptörüne bağlanın")
-                tryConnectPreferredObd(returnTo = { showObd() }, showListOnFailure = true)
-                return@actionButton
-            }
-            status.text = "OBD okuma başlatılıyor…"
-            logger?.close()
-            logger = SessionLogger(this).also { it.start("obd") }
-            obdSampleSink = { adapter.update(it) }
-            obdStateSink = { status.text = it }
-            ensureObdPolling(forceRestart = true)
-        })
-        controls.addView(actionButton("Durdur") {
-            obdPolling?.stop()
-            status.text = "OBD okuma durdu · bağlantı açık"
-        })
-        if (obdConnectionState == ObdConnectionState.CONNECTED) {
-            controls.addView(actionButton("Bağlantıyı kes") { disconnectObdConnection(); status.text = obdScreenStatusText() })
-        }
         controls.addView(actionButton("Download'a aktar") { exportLogsToDownload() })
         root.addView(controls)
-        root.addView(label("Bir sensöre dokun: odak modu · tekrar dokun: genel tarama · ekranlar arası kaydır", 16f, color(R.color.lab_text_secondary)).apply { setPadding(dp(18), 0, 0, dp(6)) })
         root.addView(ListView(this).apply {
             dividerHeight = dp(8)
             setPadding(dp(18), 0, dp(18), dp(12))
@@ -473,10 +456,17 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
         if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            logger?.close()
+            logger = SessionLogger(this).also { it.start("obd") }
             obdSampleSink = { adapter.update(it) }
             obdStateSink = { status.text = it }
-            ensureObdPolling()
+            ensureObdPolling(forceRestart = true)
         }
+    }
+
+    private fun exitApp() {
+        stopActiveScreen(disconnectObd = true)
+        finishAffinity()
     }
 
     private fun showMotorSensors() {
