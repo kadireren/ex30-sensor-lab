@@ -6,6 +6,8 @@
     <color name="lab_success">#57E295</color>
     <color name="lab_warning">#FFC66D</color>
     <color name="lab_error">#FF6B6B</color>
+    <color name="lab_accent_surface">#103246</color>
+    <color name="lab_error_surface">#35191E</color>
     <color name="lab_violet">#A99CFF</color>
     <color name="lab_border">#29435B</color>
     <color name="lab_text">#F7F9FC</color>

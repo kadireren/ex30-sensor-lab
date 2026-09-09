@@ -18,11 +18,11 @@ class MainActivityInstrumentedTest {
             onView(withText("‹ Ana menü")).perform(click())
 
             onView(withText("OBD Verileri")).perform(click())
-            onView(withText("Bağlan ve oku")).check(matches(withText("Bağlan ve oku")))
+            onView(withText("Download'a aktar")).check(matches(withText("Download'a aktar")))
             onView(withText("‹ Ana menü")).perform(click())
 
-            onView(withText("OBD Scanner")).perform(click())
-            onView(withText("Kısa ECU taraması")).check(matches(withText("Kısa ECU taraması")))
+            onView(withText("Sensör Keşfi")).perform(click())
+            onView(withText("HCI kayıt rehberini göster")).check(matches(withText("HCI kayıt rehberini göster")))
         }
     }
 }

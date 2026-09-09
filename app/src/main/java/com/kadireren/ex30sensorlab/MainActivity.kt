@@ -15,6 +15,7 @@ import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
+import android.util.Log
 import android.view.GestureDetector
 import android.view.Gravity
 import android.view.MotionEvent
@@ -56,6 +57,7 @@ import com.kadireren.ex30sensorlab.obd.ObdPreferredDevice
 import com.kadireren.ex30sensorlab.scanner.ScanProfileParser
 import com.kadireren.ex30sensorlab.scanner.ScannerController
 import com.kadireren.ex30sensorlab.ui.DriveSensorAdapter
+import com.kadireren.ex30sensorlab.ui.DriveLayout
 import com.kadireren.ex30sensorlab.ui.SensorListAdapter
 import com.kadireren.ex30sensorlab.vhal.AndroidVhalReader
 import com.kadireren.ex30sensorlab.vhal.SafetyState
@@ -225,7 +227,7 @@ class MainActivity : Activity() {
         val cards = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(28), dp(16), dp(28), dp(8))
+            setPadding(dp(20), dp(10), dp(20), dp(4))
         }
         cards.addView(menuCard("1", "AAOS Verileri", "${VhalCatalog.entries.size} VHAL sensörü") { showAaos() }, menuCardLayoutParams())
         cards.addView(menuCard("2", "OBD Verileri", "Bluetooth OBD adaptörü ile okuma") { showObd() }, menuCardLayoutParams(dp(16)))
@@ -233,30 +235,17 @@ class MainActivity : Activity() {
         val row2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(dp(28), dp(8), dp(28), dp(8))
+            setPadding(dp(20), dp(4), dp(20), dp(4))
         }
         row2.addView(menuCard("3", "Sensör Keşfi", "Faz 1–2 · HCI + kalibrasyon") { showScanner() }, menuCardLayoutParams())
         row2.addView(menuCard("4", "Sürüş Görünümü", "Büyük yazı · sayfalı okuma") { showDriveView() }, menuCardLayoutParams(dp(16)))
         root.addView(row2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
-        val row3 = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            setPadding(dp(28), dp(8), dp(28), dp(8))
-        }
-        val confirmedCount = DiscoveredSensorStore.snapshot().confirmedSensors.size
-        row3.addView(
-            menuCard("5", "Motor sensörleri", "$confirmedCount/3 onaylı · LIVE okuma") { showMotorSensors() },
-            menuCardLayoutParams(),
-        )
-        root.addView(row3, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 0.85f))
-        val obdRow = controlRow()
-        obdRow.addView(actionButton("OBD'ye bağlan") {
+        val homeActions = controlRow().apply { setPadding(dp(20), dp(5), dp(20), dp(5)) }
+        homeActions.addView(homeActionButton("OBD'ye bağlan", color(R.color.lab_accent), color(R.color.lab_accent_surface)) {
             tryConnectPreferredObd(returnTo = { showHome() }, showListOnFailure = true)
         })
-        obdRow.addView(actionButton("Diğer cihazlar") { showObdDevices { showHome() } })
-        root.addView(obdRow)
-        val obdRow2 = controlRow()
-        obdRow2.addView(actionButton("OBD bağlantısını kes") {
+        homeActions.addView(homeActionButton("Diğer cihazlar", color(R.color.lab_violet)) { showObdDevices { showHome() } })
+        homeActions.addView(homeActionButton("Bağlantıyı kes", color(R.color.lab_warning)) {
             if (obdConnectionState == ObdConnectionState.CONNECTED) {
                 disconnectObdConnection()
                 showHome()
@@ -264,10 +253,10 @@ class MainActivity : Activity() {
                 toast("OBD bağlı değil")
             }
         })
-        obdRow2.addView(actionButton("Uygulamadan çıkış") { exitApp() })
-        root.addView(obdRow2)
-        root.addView(label("● Scanner güvenlik kapıları etkin   ·   v${appVersionName()}", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
-            setPadding(0, dp(14), 0, dp(18))
+        homeActions.addView(homeActionButton("Uygulamadan çık", color(R.color.lab_error), color(R.color.lab_error_surface), endMargin = 0) { exitApp() })
+        root.addView(homeActions)
+        root.addView(label("● Scanner güvenlik kapıları etkin   ·   v${appVersionName()}", 13f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+            setPadding(0, dp(5), 0, dp(8))
         })
         setContentView(root)
         if (obdConnectionState == ObdConnectionState.CONNECTED) ensureObdPolling()
@@ -321,7 +310,7 @@ class MainActivity : Activity() {
         driveSource = SensorSource.VHAL
         drivePages[SensorSource.VHAL] = 0
         drivePages[SensorSource.OBD] = 0
-        val adapter = DriveSensorAdapter(this, SensorSource.VHAL).also { driveAdapter = it }
+        val adapter = DriveSensorAdapter(this, SensorSource.VHAL, driveLayout()).also { driveAdapter = it }
         val root = baseScreen("Sürüş Görünümü", "Canlı sensör değerleri", true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status").also { driveStatusView = it }
         val sourceRow = controlRow().apply { setPadding(dp(18), dp(8), dp(18), dp(6)) }
@@ -329,21 +318,28 @@ class MainActivity : Activity() {
         driveSourceObdButton = largeTabButton("OBD") { selectDriveSource(SensorSource.OBD, adapter, status) }
         sourceRow.addView(driveSourceVhalButton)
         sourceRow.addView(driveSourceObdButton)
+        var layoutButton: Button? = null
+        layoutButton = largeTabButton(adapter.layout.label) { showDriveLayoutPicker(adapter, layoutButton) }
+        sourceRow.addView(layoutButton)
         root.addView(sourceRow)
         drivePageLabel = label("VHAL · Sayfa 1 / 1", 17f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(4), 0, dp(4))
         }
         root.addView(drivePageLabel)
-        root.addView(label("Sağa/sola kaydır: sayfa değiştir", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        root.addView(label("Sağa/sola kaydır: sayfa değiştir · 9 sensör/sayfa", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(dp(18), 0, dp(18), dp(4))
         })
         root.addView(ListView(this).apply {
-            dividerHeight = dp(12)
-            setPadding(dp(24), dp(8), dp(24), dp(8))
+            dividerHeight = dp(8)
+            setPadding(dp(18), dp(6), dp(18), dp(6))
             clipToPadding = false
             this.adapter = adapter
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
+        root.post {
+            val density = resources.displayMetrics.density
+            Log.i("EX30_LAYOUT", "widthPx=${root.width} heightPx=${root.height} density=$density widthDp=${root.width / density} heightDp=${root.height / density} orientation=${resources.configuration.orientation}")
+        }
         refreshDrivePage(adapter, status)
 
         logger = SessionLogger(this).also { it.start("drive") }
@@ -372,6 +368,25 @@ class MainActivity : Activity() {
             status.text = "VHAL ve OBD verisi yok"
         }
     }
+
+    private fun showDriveLayoutPicker(adapter: DriveSensorAdapter, button: Button?) {
+        val layouts = DriveLayout.entries
+        AlertDialog.Builder(this)
+            .setTitle("Sürüş görünümü")
+            .setSingleChoiceItems(layouts.map { it.label }.toTypedArray(), layouts.indexOf(adapter.layout)) { dialog, selected ->
+                adapter.layout = layouts[selected]
+                getSharedPreferences("lab", MODE_PRIVATE).edit().putString("drive_layout", adapter.layout.name).apply()
+                button?.text = adapter.layout.label
+                adapter.notifyDataSetChanged()
+                dialog.dismiss()
+            }
+            .setNegativeButton("Vazgeç", null)
+            .show()
+    }
+
+    private fun driveLayout(): DriveLayout = runCatching {
+        DriveLayout.valueOf(getSharedPreferences("lab", MODE_PRIVATE).getString("drive_layout", DriveLayout.MODERN.name)!!)
+    }.getOrDefault(DriveLayout.MODERN)
 
     private fun selectDriveSource(source: SensorSource, adapter: DriveSensorAdapter, status: TextView?) {
         if (driveSource == source) return
@@ -669,45 +684,30 @@ class MainActivity : Activity() {
             startCalibrationWizard(status, eventRows, eventAdapter) { refreshWorkflow() }
         })
 
-        val faz2Row = controlRow()
-        DiscoveryTarget.entries.forEach { target ->
-            faz2Row.addView(scannerActionRow(
-                "${target.labelTr} seç",
-                "Bekleyen pozitif sorgulardan ${target.labelTr} DID'ini onaylar.",
-                compact = true,
-            ) { showPendingTargetDialog(target) { refreshWorkflow() } })
-        }
-        guideContent.addView(faz2Row)
+        guideContent.addView(scannerActionRow(
+            "Sensörü manuel eşleştir",
+            "Kalibrasyonun otomatik bulamadığı gaz, RPM veya tork sinyalini bekleyen DID listesinden seçin.",
+        ) { showDiscoveryTargetPicker { refreshWorkflow() } })
 
         guideContent.addView(scannerSectionCard(
-            "Faz 3 · Motor sensörleri (LIVE)",
-            "Onaylanan gaz pedalı, motor RPM ve Actual torque değerlerini ayrı ekranda okur.",
-            "Motor sensörleri ekranı",
+            "Faz 3 · Onaylanan sensörleri canlı izle",
+            "Keşif içinde onaylanan gaz pedalı, motor RPM ve Actual torque değerlerini OBD üzerinden okur.",
+            "Canlı sensör ekranını aç",
             "En az bir onaylı sensör varsa OBD polling ile LIVE gösterim.",
         ) { showMotorSensors() })
 
-        val exportRow = controlRow()
-        exportRow.addView(scannerActionRow(
+        val resultRow = controlRow()
+        resultRow.addView(scannerActionRow(
             "Keşif raporunu Download'a yaz",
             "discovery_report.txt + discovered_sensors.json",
             compact = true,
         ) { exportDiscoveryArtifacts() })
-        exportRow.addView(scannerActionRow(
-            "Profili oynat (yalnız log)",
-            "Kaydetmeden olay günlüğünde HCI sorgularını gösterir.",
+        resultRow.addView(scannerActionRow(
+            "Olay günlüğünü aç",
+            "Sorgu, pozitif yanıt, aday ve NRC kayıtlarını ayrı pencerede gösterir.",
             compact = true,
-        ) {
-            val profile = importedProfile
-            if (profile == null) {
-                toast("Önce HCI profili içe aktarın")
-                return@scannerActionRow
-            }
-            runObdTask("HCI profil oynatma") {
-                scanner?.replayProfile(profile, eventSink(eventRows, eventAdapter), scannerStateSink(status))
-                    ?: toast("Scanner hazır değil")
-            }
-        })
-        guideContent.addView(exportRow)
+        ) { showEventLog(eventRows) })
+        guideContent.addView(resultRow)
 
         val controlRowFooter = controlRow()
         controlRowFooter.addView(scannerActionRow(
@@ -731,24 +731,10 @@ class MainActivity : Activity() {
                 refreshWorkflow()
             })
         }
-        controlRowFooter.addView(scannerActionRow(
-            "Download'a aktar",
-            "Oturum CSV/JSONL loglarını Download/EX30SensorLab klasörüne yazar.",
-            compact = true,
-        ) { exportLogsToDownload() })
         guideContent.addView(controlRowFooter)
 
         guidePanel.addView(guideContent)
-        root.addView(guidePanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(300)))
-
-        root.addView(label("Olay günlüğü · pozitif yanıt / aday / NRC", 14f, color(R.color.lab_text_secondary)).apply {
-            setPadding(dp(18), dp(4), dp(18), dp(2))
-        })
-        root.addView(ListView(this).apply {
-            adapter = eventAdapter
-            dividerHeight = dp(2)
-            setPadding(dp(18), 0, dp(18), dp(8))
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        root.addView(guidePanel, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
         val manager = carPropertyManager
@@ -1435,31 +1421,34 @@ class MainActivity : Activity() {
         }
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
-        setPadding(dp(20), dp(18), dp(20), dp(18))
+        setPadding(dp(16), dp(10), dp(16), dp(10))
         background = rounded(color(R.color.lab_surface), color(R.color.lab_border), dp(18))
         isClickable = true
         isFocusable = true
         setOnClickListener { click() }
-        addView(label(number, 24f, color(R.color.lab_background), Gravity.CENTER).apply {
+        addView(label(number, 21f, color(R.color.lab_background), Gravity.CENTER).apply {
             setTypeface(typeface, Typeface.BOLD)
-            background = rounded(tileColor, tileColor, dp(13))
-        }, LinearLayout.LayoutParams(dp(52), dp(52)).apply { marginEnd = dp(18) })
+            background = rounded(tileColor, tileColor, dp(11))
+        }, LinearLayout.LayoutParams(dp(44), dp(44)).apply { marginEnd = dp(14) })
         addView(LinearLayout(this@MainActivity).apply {
             orientation = LinearLayout.VERTICAL
-            addView(label(title, 22f, color(R.color.lab_text)).apply {
+            addView(label(title, 19f, color(R.color.lab_text)).apply {
                 setTypeface(typeface, Typeface.BOLD)
                 maxLines = 2
             })
-            addView(label(subtitle, 14f, color(R.color.lab_text_secondary)).apply {
-                setPadding(0, dp(5), 0, dp(8))
-                maxLines = 2
+            addView(label(subtitle, 12f, color(R.color.lab_text_secondary)).apply {
+                setPadding(0, dp(2), 0, dp(3))
+                maxLines = 1
             })
             addView(label(when (number) {
                 "1" -> "VHAL SENSÖRLERİ  →"
                 "2" -> "CANLI OKUMA  →"
                 "3" -> "YALNIZ ARAÇ SABİTKEN  →"
                 else -> "BÜYÜK VE SADE  →"
-            }, 12f, tileColor).apply { setTypeface(typeface, Typeface.BOLD) })
+            }, 10f, tileColor).apply {
+                setTypeface(typeface, Typeface.BOLD)
+                maxLines = 1
+            })
         }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
     }
 
@@ -1478,6 +1467,24 @@ class MainActivity : Activity() {
         setPadding(dp(16), 0, dp(16), 0)
         setOnClickListener { click() }
         layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(52)).apply { marginEnd = dp(10) }
+    }
+
+    private fun homeActionButton(
+        text: String,
+        accent: Int,
+        fill: Int = color(R.color.lab_surface_alt),
+        endMargin: Int = dp(8),
+        click: () -> Unit,
+    ) = Button(this).apply {
+        this.text = text
+        setTextColor(color(R.color.lab_text))
+        textSize = 15f
+        isAllCaps = false
+        setTypeface(typeface, Typeface.BOLD)
+        background = rounded(fill, accent, dp(12))
+        setPadding(dp(8), 0, dp(8), 0)
+        setOnClickListener { click() }
+        layoutParams = LinearLayout.LayoutParams(0, dp(50), 1f).apply { marginEnd = endMargin }
     }
 
     private fun largeTabButton(text: String, click: () -> Unit) = Button(this).apply {
@@ -1650,6 +1657,24 @@ class MainActivity : Activity() {
             }
             .setNegativeButton("İptal", null)
             .show()
+    }
+
+    private fun showDiscoveryTargetPicker(onUpdated: () -> Unit = {}) {
+        val targets = DiscoveryTarget.entries
+        AlertDialog.Builder(this)
+            .setTitle("Eşleştirilecek sensör")
+            .setItems(targets.map { it.labelTr }.toTypedArray()) { _, index ->
+                showPendingTargetDialog(targets[index], onUpdated)
+            }
+            .setNegativeButton("İptal", null)
+            .show()
+    }
+
+    private fun showEventLog(rows: List<String>) {
+        showScrollableHelpDialog(
+            "Olay günlüğü",
+            if (rows.isEmpty()) "Henüz olay kaydı yok." else rows.joinToString("\n\n"),
+        )
     }
 
     private fun startCalibrationWizard(
@@ -1869,6 +1894,6 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
         private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f
         private const val PREFERRED_DISCOVERY_TIMEOUT_MS = 10_000L
-        private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.MOTOR, Page.DRIVE)
+        private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.DRIVE)
     }
 }
