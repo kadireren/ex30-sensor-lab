@@ -30,7 +30,7 @@ object ObdDecoders {
                 "hv_temp_max" -> f("%.2f °C · sensör %d", data.substring(2, 6).toInt(16) / 100f - 50f, data.take(2).toInt(16))
                 "hv_soh" -> f("%.2f %%", data.take(8).toLong(16) * 0.01f)
                 "odometer", "odometer_11bit" -> f("%d km", data.take(6).toLong(16))
-                "soc_display" -> f("%d %%", data.take(2).toInt(16))
+                "soc_display" -> f("%d %%", data.take(8).toLong(16))
                 "vehicle_speed", "wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr" -> f("%d km/h", data.take(2).toInt(16))
                 "brake_fl", "brake_fr", "brake_rl", "brake_rr" -> f("%.2f bar", data.take(4).toInt(16) / 100f)
                 else -> data

@@ -30,6 +30,27 @@ HCI yakalama adımları: [docs/HCI_CAPTURE_TR.md](docs/HCI_CAPTURE_TR.md)
 
 Keşif özeti (VHAL, OBD, HCI, sanal ses): [docs/DISCOVERY_MEMORY.md](docs/DISCOVERY_MEMORY.md)
 
+## Mac throttle keşfi
+
+Araçta IOS-Vlink ile birincil pasif CAN testi, yedek ECU keşfi ve doğru HCI
+kayıt rehberi tek salt-okunur sihirbazdadır:
+
+```sh
+./tools/EX30_Throttle_Kesif.command
+```
+
+Önce ham CAN seçeneği çalıştırılır. Araç P'de ve park freni açıkken ekranın
+istediği `%0 → %25 → %50 → %0` pedal aşamaları uygulanır. Araç hareket
+ettirilmez. Pasif akış ağ geçidinde kapalıysa hızlı ECU keşfi, gerekirse tam
+ECU keşfi seçilir. Çıktılar masaüstünde zaman damgalı klasöre yazılır.
+
+Araç Mac'inde `bleak` daha önce kurulmamışsa sihirbaz yalnız şu kullanıcı
+kurulumunu ister; proje bağımlılıklarına paket eklemez:
+
+```sh
+python3 -m pip install bleak
+```
+
 ## Kaynak ve lisans
 
 EX30 ECU adresleri, DID'ler ve doğrulama yöntemi MIT lisanslı

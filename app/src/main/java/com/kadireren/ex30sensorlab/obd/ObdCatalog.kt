@@ -50,10 +50,7 @@ object ObdCatalog {
         candidate("4908", EcuContexts.BECM), candidate("DA17", EcuContexts.BECM),
         candidate("413A", EcuContexts.VCFRONT),
         *listOf("4A28", "4A29", "4A30", "4A31", "4A32", "4A33", "4A34").map { candidate(it, EcuContexts.VCFRONT) }.toTypedArray(),
-        *listOf("E300", "E301", "E303", "E304", "E306", "E312", "EE9A").map { candidate(it, EcuContexts.ECU_F) }.toTypedArray(),
-        candidate("2B11", EcuContexts.ECU_E), candidate("2B04", EcuContexts.ECU_E),
-        candidate("2B05", EcuContexts.ECU_E), candidate("FEE7", EcuContexts.ECU_E),
-        *listOf("EE19", "EE1A", "EE1B", "EE06").map { candidate(it, EcuContexts.ECU_D) }.toTypedArray(),
+        candidate("489E", EcuContexts.BECM),
     )
 
     private fun p(key: String, name: String, did: String, unit: String, ecu: EcuContext, hz: Float) =

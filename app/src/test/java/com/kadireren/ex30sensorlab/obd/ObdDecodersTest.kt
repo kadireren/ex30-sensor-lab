@@ -16,6 +16,7 @@ class ObdDecodersTest {
         assertEquals("100.00 %", ObdDecoders.decode("hv_soh", "496D", "62496D00002710"))
         assertEquals("2368 km", ObdDecoders.decode("odometer", "DD01", "62DD01000940"))
         assertEquals("100 %", ObdDecoders.decode("soc_display", "D901", "62D90164"))
+        assertEquals("100 %", ObdDecoders.decode("soc_display", "D901", "62D90100000064"))
     }
 
     @Test fun decodesMultiframeBrakeAndRejectsGarbage() {

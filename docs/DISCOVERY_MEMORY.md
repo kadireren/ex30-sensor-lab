@@ -146,13 +146,16 @@ Kaynak: `ex30-companion-runner/docs/pid_map.md`, `obd2/pids.py`,
 | VCFRONT `D01601` | `D901` | Gösterge SOC | |
 | 11-bit `7E3` | `DD01` | Km | |
 
-### HCI ile aday ama **doğrulanmamış** (pid_map'te yok)
+### Canlı kalibrasyondan sonra kalan aday
 
-| ECU | DID | Snoop hipotezi |
-|-----|-----|----------------|
-| ECU-F | `E300`, `E303`, `E304`, … | pedal/fren adayı |
-| ECU-E | `2B11`, `FEE7` | yaw/chassis — throttle değil |
-| ECU-E | `2B04`, `2B05` | **Sensor Lab tahmini**; referans repoda **yok** |
+| ECU | DID | Canlı gözlem |
+|-----|-----|-------------|
+| BECM | `489E` | Dururken yaklaşık `0x000Bxxxx`, hareket sırasında `0x007Exxxx` seviyesine kadar değişti; anlamı ve ölçeği bilinmiyor, **confirmed değil** |
+
+ECU-F `E3xx`, ECU-D `EExx`, ECU-E `2Bxx`/`F4xx`/`FExx` içindeki eski
+gaz/RPM adayları 2026-09-13 canlı boş–hafif–orta–bırak ve hareket
+kalibrasyonlarında pedal yüzdesini izlemediği için `ObdCatalog.candidates`
+listesinden çıkarıldı.
 
 ### Gaz “pedal” o projede nasıl
 
@@ -192,6 +195,48 @@ Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4
 | `22F40D` ECU-E hız | **LIVE** (park 0 km/h) |
 | `22FD00…` fren ortalaması | **ERROR** (decode; sonraki commit'lerde fallback iyileştirildi) |
 | Scanner aday izleme | Çalışıyor; çoğu aday NRC veya sabit |
+
+### 2026-09-13 Mac BLE canlı tarama ve kalibrasyon
+
+- Mac, IOS-Vlink'e BLE üzerinden doğrudan bağlandı: ELM327 v2.3; servis
+  `000018f0`, RX notify `00002af0`, TX write `00002af1`. Mode 01 `0100` için
+  `NO DATA` alındı; EX30 UDS `22` sorguları çalıştı.
+- Doğrudan canlı okumalar: 12 V `14,2 V`, BECM HV yaklaşık `276 V`, HV akım
+  yaklaşık `1,5 A`, ortalama batarya sıcaklığı `29 °C`, SOH `%100`, araç hızı
+  dururken `0 km/h`, VCFRONT SOC `%100`.
+- VCFRONT `D901` gerçek cevabı dört baytlı `00000064` oldu. SOC decoder'ı tüm
+  veri alanını okuyacak şekilde düzeltildi; eski ilk-bayt davranışı `%0`
+  gösterebiliyordu.
+
+Tam 256-DID taramalar:
+
+| ECU / aralık | Pozitif | NRC / veri yok | Sonuç |
+|--------------|--------:|----------------:|-------|
+| ECU-F `E300–E3FF` | 36 | 220 / 0 | 29 sensör adayı ve hızlı eski adaylar gaz fazlarını izlemedi |
+| ECU-D `EE00–EEFF` | 62 | 188 / 6 | 54 sabit; küçük değişenler pedal oranıyla sıralı değildi |
+| ECU-E `2B00–2BFF` | 12 | 239 / 5 | `2B06–2B09` teker hızları doğrulandı; `2B11` şasi dinamiği |
+| ECU-E `F400–F4FF` | 5 | 246 / 5 | `F40D` hız doğrulandı; diğer dört değer gazda sabit |
+| ECU-E `FE00–FEFF` | 5 | 246 / 5 | `FEE0` kimlik/tarih; diğerleri pedal değil |
+| BECM `4800–48FF` | 11 | 230 / 15 | `489E` hareket adayı; ilk adresler ECU ısınırken veri vermedi |
+
+Hareket kalibrasyonu:
+
+- `F40D` ve `2B06–2B09`, ileri/geri hareketin mutlak hızını birlikte izledi.
+- `2B1A` duruşta `000100`, D/R sırasında `000400`; yön değil sürüş-durumu
+  adayı. `2B20` durum geçişleri gösterdi. İkisi de pedal/RPM değil.
+- BECM `4802`, ilk duruşta `1,8–1,9 A`, harekette `19,9 A` tepe ve son
+  duruşta yeniden `1,8–1,9 A` verdi. Gaz/yük için doğrulanmış en iyi OBD proxy
+  `4801 × 4802` türetilmiş kW olmaya devam ediyor.
+- Doğrudan gaz pedalı yüzdesi ve gerçek motor RPM bulunmadı.
+
+Kanıt CSV'leri kullanıcı masaüstünde `EX30_*.csv` adlarıyla saklandı; temel
+dosyalar: `EX30_ECUF_E300_E3FF_20260913_130717.csv`,
+`EX30_ECU-D_EE00_EEFF_20260913_131441.csv`,
+`EX30_ECU-E_2B00_2BFF_20260913_132053.csv`,
+`EX30_ECU-E_hareket_20260913_132514.csv`,
+`EX30_ECU-E_F400_F4FF_20260913_132921.csv`,
+`EX30_ECU-E_FE00_FEFF_20260913_133241.csv` ve
+`EX30_BECM-KISA_hareket_20260913_133738.csv`.
 
 ### Emülatör
 
@@ -308,9 +353,14 @@ gh api repos/kadireren/ex-30-driver-display-private/contents/ex30-companion-runn
 ## 8. Açık işler (bilinçli boşluklar)
 
 - [ ] Araçta VHAL **anlık güç** CANLI mı, işaret yönü doğru mu (Sensor Lab AAOS ekranı)
-- [ ] OBD `4802` pedal tepkisi vs VHAL güç gecikmesi karşılaştırması
+- [x] OBD `4802` hareket/yük tepkisi (1,8–1,9 A taban, 19,9 A kısa tepe)
 - [ ] Tam **btsnoop** HCI oturumu → `extract_hci_profile.py` → ECU'lu replay
-- [ ] Motor DID sweep (`2B00`–`2B20`, ECU-F `E3xx`) + pedal 0→%50 kalibrasyon logu
+- [ ] Mac `ATMA` pasif CAN `%0 → %25 → %50 → %0` korelasyonu; 29-bit veri
+  yoksa 11-bit otomatik denenir (`tools/mac_ble_throttle_discovery.py`)
+- [ ] Pasif CAN yoksa hızlı 19-adres ECU keşfi; gerekirse `D01601–D017FF`
+  tam tarama. Yalnız salt-okunur `22F190`, kimlik cevabı kaydedilmez.
+- [x] Motor DID sweep (ECU-E `2Bxx`/`F4xx`/`FExx`, ECU-F `E3xx`, ECU-D
+  `EExx`, BECM `48xx`) + pedal/hareket kalibrasyonu; doğrudan pedal/RPM yok
 - [ ] Dashboard ses başarısızlığı: kullanıcıdan debug overlay / log (isteğe bağlı kök neden)
 
 Bu maddeler tamamlanınca bu dosyadaki tablolar güncellenmeli; tahmin

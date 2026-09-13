@@ -13,12 +13,12 @@ from pathlib import Path
 
 BTSNOOP_HEADER = b"btsnoop\x00\x00\x00\x00\x01\x00\x00\x03\xea"
 
-TYPE_OUT_CMD = 0
-TYPE_IN_ACL = 1
-TYPE_OUT_ACL = 2
-TYPE_IN_SCO = 3
-TYPE_OUT_SCO = 4
-TYPE_IN_EVT = 5
+TYPE_IN_EVT = 0x10
+TYPE_IN_ACL = 0x11
+TYPE_IN_SCO = 0x12
+TYPE_OUT_CMD = 0x20
+TYPE_OUT_ACL = 0x21
+TYPE_OUT_SCO = 0x22
 
 
 def type_to_hci(packet_type: int) -> bytes:
@@ -39,41 +39,69 @@ def direction_flags(packet_type: int) -> int:
     return 1
 
 
-def write_btsnoop_record(out: BinaryIO, packet: bytes, flags: int, timestamp_us: int) -> None:
-    out.write(struct.pack(">IIIIQ", len(packet), len(packet), flags, 0, timestamp_us))
+def write_btsnoop_record(
+    out: BinaryIO,
+    packet: bytes,
+    flags: int,
+    timestamp_us: int,
+    original_length: int | None = None,
+) -> None:
+    out.write(struct.pack(">IIIIQ", original_length or len(packet), len(packet), flags, 0, timestamp_us))
     out.write(packet)
 
 
 def decode_snooz_v1(decompressed: bytes, last_timestamp_ms: int, out: BinaryIO) -> None:
     offset = 0
-    timestamp_us = last_timestamp_ms * 1000
-    while offset + 9 <= len(decompressed):
-        packet_type, length, delta_time_ms = struct.unpack_from("=BII", decompressed, offset)
-        offset += 9
-        if offset + length > len(decompressed):
+    timestamp_us = last_timestamp_ms + 0x00DC_DDB3_0F2F_8000
+    while offset + 7 <= len(decompressed):
+        length, delta_time_ms, _packet_type = struct.unpack_from("=HIb", decompressed, offset)
+        if length < 1 or offset + 7 + length - 1 > len(decompressed):
             break
-        data = decompressed[offset : offset + length]
-        offset += length
-        timestamp_us -= delta_time_ms * 1000
-        hci = type_to_hci(packet_type)
-        packet = hci + data
+        timestamp_us -= delta_time_ms
+        offset += 7 + length - 1
+    offset = 0
+    while offset + 7 <= len(decompressed):
+        length, delta_time_ms, packet_type = struct.unpack_from("=HIb", decompressed, offset)
+        offset += 7
+        data_length = length - 1
+        if data_length < 0 or offset + data_length > len(decompressed):
+            break
+        timestamp_us += delta_time_ms
+        packet = type_to_hci(packet_type) + decompressed[offset : offset + data_length]
+        offset += data_length
         write_btsnoop_record(out, packet, direction_flags(packet_type), timestamp_us)
 
 
 def decode_snooz_v2(decompressed: bytes, last_timestamp_ms: int, out: BinaryIO) -> None:
     offset = 0
-    timestamp_us = last_timestamp_ms * 1000
-    while offset + 10 <= len(decompressed):
-        packet_type, length, delta_time_ms, _flags = struct.unpack_from("=BIIB", decompressed, offset)
-        offset += 10
-        if offset + length > len(decompressed):
+    timestamp_us = last_timestamp_ms + 0x00DC_DDB3_0F2F_8000
+    while offset + 9 <= len(decompressed):
+        included_length, _packet_length, delta_time_ms, _packet_type = struct.unpack_from(
+            "=HHIb", decompressed, offset
+        )
+        if included_length < 1 or offset + 9 + included_length - 1 > len(decompressed):
             break
-        data = decompressed[offset : offset + length]
-        offset += length
-        timestamp_us -= delta_time_ms * 1000
-        hci = type_to_hci(packet_type)
-        packet = hci + data
-        write_btsnoop_record(out, packet, direction_flags(packet_type), timestamp_us)
+        timestamp_us -= delta_time_ms
+        offset += 9 + included_length - 1
+    offset = 0
+    while offset + 9 <= len(decompressed):
+        included_length, packet_length, delta_time_ms, packet_type = struct.unpack_from(
+            "=HHIb", decompressed, offset
+        )
+        offset += 9
+        data_length = included_length - 1
+        if data_length < 0 or offset + data_length > len(decompressed):
+            break
+        timestamp_us += delta_time_ms
+        packet = type_to_hci(packet_type) + decompressed[offset : offset + data_length]
+        offset += data_length
+        write_btsnoop_record(
+            out,
+            packet,
+            direction_flags(packet_type),
+            timestamp_us,
+            original_length=packet_length,
+        )
 
 
 def decode_snooz(snooz: bytes, out: BinaryIO) -> None:

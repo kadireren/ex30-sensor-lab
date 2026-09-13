@@ -1,9 +1,52 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-09
+Son güncelleme: 2026-09-13
 
 **Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
 bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
+
+## 2026-09-13 fiziksel EX30 / Mac BLE saha sonucu
+
+- IOS-Vlink'e Mac'ten BLE bağlantısı ve salt-okunur UDS `22` sorguları
+  doğrulandı. ECU-F `E3xx`, ECU-D `EExx`, ECU-E `2Bxx`/`F4xx`/`FExx` ve BECM
+  `48xx` bloklarında 256'şar DID tarandı; pozitifler pedal ve hareket fazlarıyla
+  kalibre edildi.
+- Doğrudan gaz pedalı yüzdesi veya gerçek motor RPM bulunmadı. Eski ECU-F,
+  ECU-D ve ECU-E gaz/RPM adayları fazları izlemediği için katalogdan çıkarıldı.
+- `F40D` araç hızı ve `2B06–2B09` dört teker hızı fiziksel hareketle
+  doğrulandı. BECM `4802`, duruşta `1,8–1,9 A`, kısa harekette `19,9 A` tepe
+  verdi; yük proxy'si `4801 × 4802` türetilmiş kW olarak kalır.
+- BECM `489E` hareketle güçlü değişti ancak anlamı/ölçeği bilinmiyor; yalnız
+  `CANDIDATE`, çalışan sensör olarak sunulmamalı.
+- VCFRONT `D901` canlı cevabı `00000064` olduğundan SOC decoder'ı dört baytlı
+  veriyi okuyacak şekilde düzeltildi ve regresyon testi eklendi.
+- Bu değişikliklerle ve throttle keşif aracıyla Python testleri `7/7`, Android
+  unit testleri `30/30` geçti; `lintDebug` ve `assembleDebug` başarılı oldu.
+  Güncel debug APK ve lint raporu 2026-09-13 14:32'de üretildi.
+- Ayrıntılı tarama sayıları, pozitif DID'ler ve CSV kanıt adları
+  [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md) içindedir.
+
+### Sonraki araç ziyareti için hazır throttle paketi
+
+- `tools/mac_ble_throttle_discovery.py`: Mac + IOS-Vlink BLE üzerinden çalışan
+  salt-okunur saha sihirbazı. Ekranda adım, geri sayım ve tamamlanma yüzdesi
+  gösterir; kayıtları masaüstünde zaman damgalı klasöre yazar.
+- `tools/EX30_Throttle_Kesif.command`: çift tıklanabilir proje başlatıcısı.
+  Masaüstünde aynı isimli kısa yol proje başlatıcısını çalıştırır.
+- Menü 1, araç P'de ve sabitken `ATMA` ile önce 29-bit, sonra gerekirse 11-bit
+  pasif CAN yeteneğini sınar. Akış varsa `%0 → %25 → %50 → %0` fazlarını
+  altışar saniye kaydeder; byte ve 16-bit alanları tekrar edilebilir pedal
+  desenine göre sıralayıp `throttle_candidates.csv` üretir.
+- Menü 2, ham CAN ağ geçidinde kapalıysa bilinen/olası 19 ECU adresini yalnız
+  `22F190` ile yoklar. Menü 3, gerekirse `D01601–D017FF` aralığındaki 511 ECU
+  adresini tarar. Kimlik yanıtı kayda yazılmaz; yalnız pozitif/NRC/yanıt-yok
+  durumu saklanır.
+- Menü 4, Car Scanner bağlı ve veri okumaya devam ederken bugreport alma
+  sırasını gösterir. Bugreport bitene kadar Car Scanner ve Bluetooth
+  kapatılmamalıdır.
+- Sonraki sıra: önce menü 1. Aday çıkarsa menü 1 aynı dört fazla ikinci kez
+  çalıştırılmalı; doğrudan `CONFIRMED` kataloğa eklenmemeli. Ham CAN yoksa menü
+  2, throttle ECU görünmezse menü 3, tanı yolu da sonuçsuzsa menü 4.
 
 ## 2026-09-09 UI ve VHAL sadeleştirme
 
@@ -109,10 +152,10 @@ ANDROID_HOME=/Volumes/Harici/Android/sdk ./gradlew testDebugUnitTest lintDebug a
 python3 -m unittest discover tools/tests -v
 ```
 
-Son sonuçlar:
+Son sonuçlar (2026-09-13):
 
-- Android: 13 unit test geçti; `lintDebug` ve `assembleDebug` başarılı.
-- Python: 2 test geçti.
+- Android: 30 unit test geçti; `lintDebug` ve `assembleDebug` başarılı.
+- Python: 7 test geçti.
 - `assembleDebugAndroidTest` daha önce başarıyla derlendi.
 - Fiziksel cihaz olmadığı için `connectedDebugAndroidTest` çalıştırılmadı.
 - Debug APK: `app/build/outputs/apk/debug/app-debug.apk`.
