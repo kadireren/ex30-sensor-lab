@@ -227,7 +227,8 @@ Hareket kalibrasyonu:
 - BECM `4802`, ilk duruşta `1,8–1,9 A`, harekette `19,9 A` tepe ve son
   duruşta yeniden `1,8–1,9 A` verdi. Gaz/yük için doğrulanmış en iyi OBD proxy
   `4801 × 4802` türetilmiş kW olmaya devam ediyor.
-- Doğrudan gaz pedalı yüzdesi ve gerçek motor RPM bulunmadı.
+- Bu 2026-09-13 Mac DID taramalarında doğrudan gaz pedalı yüzdesi ve gerçek
+  motor RPM bulunmadı; 2026-09-15 Car Scanner kaydı için aşağıya bak.
 
 Kanıt CSV'leri kullanıcı masaüstünde `EX30_*.csv` adlarıyla saklandı; temel
 dosyalar: `EX30_ECUF_E300_E3FF_20260913_130717.csv`,
@@ -237,6 +238,61 @@ dosyalar: `EX30_ECUF_E300_E3FF_20260913_130717.csv`,
 `EX30_ECU-E_F400_F4FF_20260913_132921.csv`,
 `EX30_ECU-E_FE00_FEFF_20260913_133241.csv` ve
 `EX30_BECM-KISA_hareket_20260913_133738.csv`.
+
+### 2026-09-15 Car Scanner uzun sürüş kaydı — yeni kanıt
+
+Honor tablette Car Scanner ve Bluetooth açık tutulurken bugreport alındı.
+Bugreport içinde tam `btsnoop_hci.log` dosyası yok; `dumpsys bluetooth_manager`
+özetindeki btsnooz 10.020 HCI pakete çözüldü. Yaklaşık 7 dakika 15 saniyelik
+BLE pencerenin ATT verileri 15 bayta kırpılmış: `22E...` ve `224...` yalnız
+ilk üç karakter olarak görünür, tam DID veya cevabı çıkarmaya yetmez.
+
+Car Scanner'ın aynı gün 18:54 tarihli `.brc` sürüş kaydı ise yaklaşık 10
+dakikalık sayısal örnekleri saklıyor:
+
+| Car Scanner etiketi | Örnek | Kayıttaki aralık | Kanıt düzeyi |
+|---------------------|------:|-----------------:|-------------|
+| `[VCU] Accelerator pedal PWM signal` | 284 | 7–100 | Car Scanner canlı değer; PWM ölçeği/DID bilinmiyor |
+| `[IEM] ERAD Motor Speed` | 281 | −324–6229 | Car Scanner canlı değer; birim/DID bilinmiyor |
+| `[IEM] ERAD Actual Torque` | 281 | 0–181 | Car Scanner canlı değer; birim/DID bilinmiyor |
+
+277 yakın zamanlı örnekte pedal değeri ile motor hızı/tork arasında yaklaşık
+`r=0,49/0,50` korelasyon var; sürüş karışık olduğu için bu tek başına decoder
+formülünü doğrulamaz. **Yeni sonuç:** sinyaller Car Scanner'da görünür ve
+kaydedilir. Önceki “gaz/RPM yok” sonucu yalnız Sensor Lab'in VHAL ve
+2026-09-13'te denenen ECU/DID sorguları için geçerlidir. Uygulamaya gerçek
+sensör eklemek için tam ECU/DID, cevap baytları, ölçek ve bağımsız tekrar
+gerekir. Ham kanıtlar gitignore'daki `captures/hci/` altındadır; bugreport/BRC
+herkese açık paylaşılmamalıdır.
+
+#### 2026-09-15 düzeltme — tam Honor HCI dosyası bulundu
+
+Bugreport ZIP tam dosyayı içermiyordu; tablette erişilebilir
+`/data/log/bt/btsnoop_hci_20260915_185317.log` dosyası bulundu ve
+`captures/hci/btsnoop-full-candidate-20260915.log` olarak yerel alındı
+(gitignore; paylaşma). Dosya 46.316 HCI kayıt içerir; **46.316/46.316
+pakette included length = original length**, yani payload kırpılmamış.
+`persist.bluetooth.btsnooplogmode` boş ve ADB ile `full` yazma girişimi
+reddedildi; `btsnooppacketchunksize` ayarı kullanılmadı. Tam dosya
+mevcutken Honor Project Menu/verbose ayarına gerek yok.
+
+Car Scanner ELM sorgularının sonundaki tek haneli yanıt-sayısı (`22E3011`)
+profil çıkarıcıda DID'den ayrıldı. HCI cevapları ile aynı oturumdaki `.brc`
+zaman-değer kayıtları karşılaştırıldı; şu eşlemeler **tüm eşleşen örneklerde
+bire bir** çıktı:
+
+| Sinyal | ECU TX / RX | Sorgu | Cevap verisi | Eşleşme |
+|--------|-------------|-------|--------------|---------:|
+| Gaz pedalı PWM sinyali | `D01601` / `1EC02E80` | `22E301` | u8 = Car Scanner gösterimi; bırakıldığında taban 7, yüzde-0 pedal sanma | 284/284 |
+| ERAD Motor Speed | `D01637` / `1EC6EE80` | `22E303` | u16 − 16384 = Car Scanner motor hızı | 281/281 |
+| ERAD Actual Torque | `D01637` / `1EC6EE80` | `22E304` | u16 − 8188 = Car Scanner torku | 281/281 |
+
+İlk eşleşen örnekler: `62E30115` → 21; `62E303504B` → 4171;
+`62E3041FFC` → 0. Son kayıtta motor hızı −324…6229, tork 0…181.
+Bu **ECU/DID/Car Scanner ölçeğini** doğrular; fiziksel birimi ve Sensor Lab'in
+EX30 üzerinden bağımsız canlı replay'ini ayrıca doğrulamak gerekir. Üç sorgu
+yerleşik salt-okunur kataloğa ve Motor sensörleri ekranına eklendi; ekran
+araçta Sensor Lab canlı tekrar testinin beklediğini belirtir.
 
 ### Emülatör
 
@@ -258,7 +314,7 @@ dosyalar: `EX30_ECUF_E300_E3FF_20260913_130717.csv`,
 
 | Yol | Araç | Sonuç |
 |-----|------|--------|
-| **`extract_hci_profile.py`** | bugreport içinde gerçek `btsnoop_hci.log` | Doğru yöntem: AT bağlamı + ECU eşlemesi + yanıtlar |
+| **`extract_hci_profile.py`** | gerçek `btsnoop_hci.log` (`/data/log/bt/` veya ZIP) | Doğru yöntem: AT bağlamı + ECU eşlemesi + yanıtlar |
 | **`extract_snooz_profile.py`** | `dumpsys btsnooz` binary `11 00 22 XX YY` | **Yanlış varsayım:** tüm DID → ECU-E; Volvo UDS değil |
 
 ### HCI profil replay (EX30 Sensor Lab, araç)
@@ -268,7 +324,7 @@ dosyalar: `EX30_ECUF_E300_E3FF_20260913_130717.csv`,
 - **Sonuç:** Car Scanner binary DID'leri doğrudan replay ile motor sesi bulunamaz;
   referans repodaki gibi **init replay + doğru ECU + kalibrasyon** gerekir
 
-### OBD aday DID'ler (henüz araçta throttle/RPM kanıtı yok)
+### OBD aday DID'ler (2026-09-15 öncesi tarihsel not)
 
 Sensor Lab `ObdCatalog.candidates`: `2B04`, `2B05`, `2B11`, `FEE7` (ECU-E),
 ECU-F `E300` serisi, BECM/VCFRONT sıcaklık adayları — **referans repoda
@@ -290,7 +346,7 @@ yapılmadı** (kullanıcı sonuç paylaşmadı).
 | İz | Neden yanlış |
 |----|----------------|
 | `FD00`–`FD03` = gaz pedalı | Referansta **fren basıncı (bar)** |
-| Car Scanner “Engine RPM” ekranı = VHAL `ENGINE_RPM` | EX30'de property yok; app içi/emülasyon olabilir |
+| Car Scanner “Engine RPM” ekranı = VHAL `ENGINE_RPM` | EX30'de property yok; `[IEM] ERAD Motor Speed` için ECU-F `22E303` ayrı OBD yolu bulundu |
 | HCI binary DID replay | ECU/header/UDS format uyuşmazlığı → NRC 31 |
 | OBD Mode 01 `010C` | EX30'de anlamlı veri beklenmez (UDS `22` dünyası) |
 
@@ -298,8 +354,12 @@ yapılmadı** (kullanıcı sonuç paylaşmadı).
 
 ## 6. Sanal motor sesi için pratik sonuç (bugünkü bilgi)
 
-Gerçek **throttle pedal signal** ve **motor RPM** EX30 üçüncü parti AAOS
-uygulamasına **doğrudan okunmuyor**.
+Sensor Lab'in VHAL yolunda gaz pedalı ve gerçek motor RPM okunmuyor. OBD
+yolunda 2026-09-15 tam HCI + Car Scanner kaydı, gaz pedalı PWM `22E301`,
+ERAD motor hızı `22E303` ve tork `22E304` ECU/DID/ölçeklerini bire bir
+eşledi; uygulama bunları salt-okunur katalogda sunuyor. **Sensor Lab'in kendi
+adaptörüyle EX30 üzerinde canlı tekrar testi henüz yapılmadı.** PWM'nin 7
+tabanı gerçek pedal yüzde 0/7 yorumuyla karıştırılmamalı.
 
 Üç repoda ortak çalışan yol:
 
@@ -307,8 +367,8 @@ uygulamasına **doğrudan okunmuyor**.
    BECM `4801`+`4802` → kW
 2. **Devir hissi:** `SoundControlModel` benzeri **sentetik `virtualRpm`**
    (hız + güç + intent); veya `WHEEL_TICK` / hız fizik modeli
-3. **Yeni DID keşfi:** referans HCI yöntemi — tam btsnoop, replay, pedal
-   kalibrasyonu; öncelik ECU-F `E300` ve ECU-E sweep
+3. **Gerçek OBD motor sinyalleri:** yukarıdaki üç DID; araçta Sensor Lab canlı
+   karşılaştırması başarılı olursa sanal ses beslemesi için değerlendir
 
 Sensor Lab'in görevi: bu sinyalleri **ölçmek ve kanıtlamak**; Dashboard ses
 motorunu taşımak değil (ayrı repo).
@@ -354,7 +414,13 @@ gh api repos/kadireren/ex-30-driver-display-private/contents/ex30-companion-runn
 
 - [ ] Araçta VHAL **anlık güç** CANLI mı, işaret yönü doğru mu (Sensor Lab AAOS ekranı)
 - [x] OBD `4802` hareket/yük tepkisi (1,8–1,9 A taban, 19,9 A kısa tepe)
-- [ ] Tam **btsnoop** HCI oturumu → `extract_hci_profile.py` → ECU'lu replay
+- [x] Tam **btsnoop** HCI dosyası `/data/log/bt/` altından alındı ve ECU'lu profil çıkarıldı
+- [x] 2026-09-15 Car Scanner `.brc` sürüş kaydı ve kırpılmış BLE HCI özeti
+  alındı; pedal PWM, motor hız ve tork sayısal örnekleri görüldü.
+- [x] Bu üç sinyalin ECU header + DID + cevap baytları + Car Scanner ölçeği
+  HCI/BRC eşlemesiyle bulundu (284/284, 281/281, 281/281).
+- [ ] Sensor Lab'in Android-Vlink bağlantısıyla araçta üç DID'i salt-okunur
+  replay et ve Car Scanner/araç göstergesiyle bağımsız canlı karşılaştır.
 - [ ] Mac `ATMA` pasif CAN `%0 → %25 → %50 → %0` korelasyonu; 29-bit veri
   yoksa 11-bit otomatik denenir (`tools/mac_ble_throttle_discovery.py`)
 - [ ] Pasif CAN yoksa hızlı 19-adres ECU keşfi; gerekirse `D01601–D017FF`

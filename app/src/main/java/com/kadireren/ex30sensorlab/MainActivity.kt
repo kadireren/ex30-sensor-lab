@@ -52,6 +52,7 @@ import com.kadireren.ex30sensorlab.obd.BluetoothObdDeviceScanner
 import com.kadireren.ex30sensorlab.obd.EcuContexts
 import com.kadireren.ex30sensorlab.obd.ElmProtocol
 import com.kadireren.ex30sensorlab.obd.ObdDeviceEntry
+import com.kadireren.ex30sensorlab.obd.ObdCatalog
 import com.kadireren.ex30sensorlab.obd.ObdPollingController
 import com.kadireren.ex30sensorlab.obd.ObdPreferredDevice
 import com.kadireren.ex30sensorlab.scanner.ScanProfileParser
@@ -493,7 +494,8 @@ class MainActivity : Activity() {
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val adapter = SensorListAdapter(this)
         motorSensorAdapter = adapter
-        seedMotorSensorPlaceholders(adapter, state)
+        seedMotorSensorPlaceholders(adapter)
+        val visibleKeys = ObdCatalog.motorSignals.map { it.key }.toSet()
         startStatusRefresh()
 
         val controls = controlRow()
@@ -504,16 +506,11 @@ class MainActivity : Activity() {
                 tryConnectPreferredObd(returnTo = { showMotorSensors() }, showListOnFailure = true)
                 return@actionButton
             }
-            if (state.confirmedSensors.isEmpty()) {
-                toast("Önce Sensör Keşfi ile en az bir DID onaylayın")
-                showScanner()
-                return@actionButton
-            }
             status.text = "Motor sensörleri okunuyor…"
             logger?.close()
             logger = SessionLogger(this).also { it.start("motor") }
             obdSampleSink = { sample ->
-                if (sample.definition.key.startsWith("discovered_")) adapter.update(sample)
+                if (sample.definition.key in visibleKeys) adapter.update(sample)
             }
             obdStateSink = { status.text = it }
             ensureObdPolling(forceRestart = true)
@@ -530,7 +527,7 @@ class MainActivity : Activity() {
         }
         controls.addView(actionButton("Keşif raporu") { exportDiscoveryArtifacts() })
         root.addView(controls)
-        root.addView(label("Hedefler: gaz pedalı · motor RPM · Actual torque", 16f, color(R.color.lab_text_secondary)).apply {
+        root.addView(label("Hedefler: gaz pedalı PWM · ERAD motor devri · ERAD tork", 16f, color(R.color.lab_text_secondary)).apply {
             setPadding(dp(18), 0, 0, dp(6))
         })
         root.addView(ListView(this).apply {
@@ -541,9 +538,9 @@ class MainActivity : Activity() {
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
 
-        if (obdConnectionState == ObdConnectionState.CONNECTED && state.confirmedSensors.isNotEmpty()) {
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
             obdSampleSink = { sample ->
-                if (sample.definition.key.startsWith("discovered_")) adapter.update(sample)
+                if (sample.definition.key in visibleKeys) adapter.update(sample)
             }
             obdStateSink = { status.text = it }
             ensureObdPolling()
@@ -691,9 +688,9 @@ class MainActivity : Activity() {
 
         guideContent.addView(scannerSectionCard(
             "Faz 3 · Onaylanan sensörleri canlı izle",
-            "Keşif içinde onaylanan gaz pedalı, motor RPM ve Actual torque değerlerini OBD üzerinden okur.",
+            "HCI/Car Scanner sürüş kaydıyla eşlenen gaz PWM, ERAD motor devri ve tork sorgularını OBD üzerinden okur; araçta Sensor Lab canlı testi bekliyor.",
             "Canlı sensör ekranını aç",
-            "En az bir onaylı sensör varsa OBD polling ile LIVE gösterim.",
+            "Yerleşik üç motor sorgusunu OBD polling ile LIVE dener.",
         ) { showMotorSensors() })
 
         val resultRow = controlRow()
@@ -1576,27 +1573,28 @@ class MainActivity : Activity() {
     }
 
     private fun motorScreenStatusText(state: DiscoveryStoreState = DiscoveredSensorStore.snapshot()): String {
-        val targets = DiscoveryTarget.entries.joinToString(" · ") { target ->
-            val ok = state.confirmedSensors.any { it.target == target }
-            "${target.labelTr}: ${if (ok) "✓" else "○"}"
-        }
-        return "$targets · ${state.confirmedSensors.size}/3 onaylı"
+        return "Gaz PWM · ERAD devri · tork: HCI doğrulandı · Manuel keşif: ${state.confirmedSensors.size} · Araçta canlı test bekliyor"
     }
 
-    private fun seedMotorSensorPlaceholders(adapter: SensorListAdapter, state: DiscoveryStoreState) {
+    private fun builtInMotorSignal(target: DiscoveryTarget) = ObdCatalog.motorSignals.first { definition ->
+        definition.key == when (target) {
+            DiscoveryTarget.THROTTLE -> "pedal_pwm"
+            DiscoveryTarget.MOTOR_RPM -> "erad_motor_speed"
+            DiscoveryTarget.ACTUAL_TORQUE -> "erad_actual_torque"
+        }
+    }
+
+    private fun seedMotorSensorPlaceholders(adapter: SensorListAdapter) {
         DiscoveryTarget.entries.forEach { target ->
-            val config = state.confirmedSensors.firstOrNull { it.target == target }
-            val key = config?.key ?: "discovered_${target.id}"
-            val name = config?.name ?: target.labelTr
-            val identifier = config?.let { "${it.service}${it.did} @ ${it.ecu?.name ?: "ELM"}" } ?: "Sensör Keşfi → onay gerekli"
+            val builtIn = builtInMotorSignal(target)
             adapter.update(
                 SensorSample(
-                    SensorDefinition(key, name, SensorSource.OBD, identifier, target.unitHint, config?.targetHz ?: 0f),
+                    SensorDefinition(builtIn.key, builtIn.name, SensorSource.OBD, "22${builtIn.did} @ ${builtIn.ecu?.name ?: "ELM"}", builtIn.unit, builtIn.targetHz),
                     rawValue = "—",
-                    displayValue = if (config != null) "Bekleniyor…" else "Henüz onaylanmadı",
+                    displayValue = "Bekleniyor…",
                     monotonicTimestampMs = SystemClock.elapsedRealtime(),
-                    status = if (config != null) SampleStatus.WAITING else SampleStatus.UNSUPPORTED,
-                    detail = if (config != null) "OBD okuma başlatın" else "Faz 2 ile ${target.labelTr} DID seçin",
+                    status = SampleStatus.WAITING,
+                    detail = "OBD okuma başlatın · araçta canlı tekrar testi bekliyor",
                 ),
             )
         }
@@ -1804,15 +1802,16 @@ class MainActivity : Activity() {
 Bu kayıt araç ekranında değil, Car Scanner kurulu ayrı bir Android telefon veya tablette yapılır.
 
 1) Telefonda Geliştirici seçeneklerini açın → «Bluetooth HCI snoop log» etkin.
-2) Bluetooth'u kapatıp açın. Android-Vlink adaptörünü yalnız Car Scanner ile eşleştirin/bağlayın.
-3) Car Scanner'da sanal motor sesi için ilgili göstergeleri açın (Engine RPM, Throttle, Accelerator pedal vb.).
-4) 60–120 saniye kayıt alın: dur → hafif gaz → orta gaz → gaz bırak (regen).
-5) Car Scanner bağlantısını kesin. Aynı adaptöre iki uygulama aynı anda bağlanmasın.
-6) Telefonu USB ile bilgisayara bağlayın:
-   adb bugreport bugreport-ex30.zip
-7) Profil üretin (Mac/PC, proje klasöründe):
-   python3 tools/extract_hci_profile.py captures/hci/btsnoop_hci.log ex30-profile.json
-8) ex30-profile.json dosyasını USB bellek ile EX30 Download/EX30SensorLab klasörüne kopyalayın → Sensör Keşfi → HCI profili içe aktar → Keşif replay (Faz 1 · kaydet).
+2) HCI kaydını bağlantıdan ÖNCE açtıysanız Bluetooth'u bir kez kapatıp açın; sonra adaptörü yalnız Car Scanner'a bağlayın. Car Scanner zaten bağlıysa Bluetooth'a dokunmayın.
+3) Car Scanner'da [VCU] Accelerator pedal PWM signal, [IEM] ERAD Motor Speed ve [IEM] ERAD Actual Torque göstergelerini açın.
+4) 60–120 saniye kayıt alın: pedal bırak → hafif gaz → orta gaz → pedal bırak. Bu üç sinyalin canlı değiştiğini kontrol edin.
+5) Honor tablette tam dosya bugreport ZIP'e girmese bile /data/log/bt/ altında kalabilir. Oturumdan sonra tableti USB ile Mac'e bağlayıp kontrol edin:
+   adb shell ls -lah /data/log/bt
+6) btsnoop_hci_*.log dosyasının tam adını kullanıp Mac'e alın; ardından profil üretin:
+   adb pull /data/log/bt/btsnoop_hci_YYYYMMDD_HHMMSS.log ex30-full-hci.log
+   python3 tools/extract_hci_profile.py ex30-full-hci.log ex30-profile.json
+7) Ayrı tam dosya yoksa Car Scanner/Bluetooth açıkken adb bugreport alın; ZIP içinde tam btsnoop_hci.log yoksa kırpılmış Bluetooth özetinden replay yapmayın.
+8) Geçerli ex30-profile.json dosyasını USB bellek ile EX30 Download/EX30SensorLab klasörüne kopyalayın → Sensör Keşfi → HCI profili içe aktar → Keşif replay (Faz 1 · kaydet). Aynı adaptöre iki uygulama aynı anda bağlanmasın.
 
 Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmayın. Uygulama yalnız salt-okunur 01xx ve 22xxxx sorgularını kabul eder.
 """.trimIndent()

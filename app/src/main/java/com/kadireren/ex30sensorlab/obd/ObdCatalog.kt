@@ -23,6 +23,12 @@ object EcuContexts {
 }
 
 object ObdCatalog {
+    val motorSignals = listOf(
+        p("pedal_pwm", "Gaz pedalı PWM sinyali", "E301", "% PWM", EcuContexts.VCFRONT, 2f),
+        p("erad_motor_speed", "ERAD motor devri", "E303", "rpm", EcuContexts.ECU_F, 2f),
+        p("erad_actual_torque", "ERAD gerçek tork", "E304", "Nm", EcuContexts.ECU_F, 2f),
+    )
+
     val confirmed = listOf(
         p("hv_voltage", "HV paket voltajı", "4801", "V", EcuContexts.BECM, 2f),
         p("hv_current", "HV paket akımı", "4802", "A", EcuContexts.BECM, 2f),
@@ -43,7 +49,7 @@ object ObdCatalog {
         p("brake_rl", "Fren basıncı FD02", "FD02", "bar", EcuContexts.ECU_E, 0f),
         p("brake_rr", "Fren basıncı FD03", "FD03", "bar", EcuContexts.ECU_E, 0f),
         ObdPidDefinition("voltage_12v", "12 V besleme", "ATRV", "V", null, 0.1f, ResearchStatus.CONFIRMED),
-    )
+    ) + motorSignals
 
     val candidates = listOf(
         candidate("DD02", EcuContexts.BECM), candidate("4907", EcuContexts.BECM),

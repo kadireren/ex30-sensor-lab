@@ -1,9 +1,77 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-13
+Son güncelleme: 2026-09-15
 
 **Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
 bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
+
+## 2026-09-15 Car Scanner sürüş kaydı / HCI yakalama
+
+- Kullanıcı yaklaşık 10 dakikalık sürüşten sonra Honor AGM3-W09HN tableti
+  Car Scanner ve Bluetooth açıkken USB/ADB ile Mac'e bağladı. Bluetooth'u
+  kapatmadan `adb bugreport` ve `dumpsys bluetooth_manager` alındı.
+- Yerel ham kanıtlar `captures/hci/` altında (gitignore; **commit/push etme**):
+  `bugreport-live-20260915.zip`, `dumpsys-bluetooth-live-20260915.txt`,
+  `btsnoop-live-20260915.log`, `carscanner-drive-20260915-185400.brc` ve
+  `carscanner-installed-20260915.apk`. Bugreport, BRC ve APK kişisel/proprietary
+  veri içerebilir; herkese açık paylaşılmamalı.
+- Bugreport'ta ayrı `btsnoop_hci.log` yoktu. Bluetooth özetindeki btsnooz
+  çözüldü: 10.020 HCI kayıt, yaklaşık 7 dakika 15 saniyelik pencere. BLE ATT
+  yazma/bildirimlerinin 4.162'si 15 bayta kırpılmış; TX handle `0x0019`, RX
+  handle `0x0016`. `22E...` (245) ve `224...` (305) komut başlangıçları
+  görüldü ama tam ECU/DID/yanıt çıkarılamadı. Eski SPP profil çıkarıcı burada
+  sıfır sorgu verir; bu kayıt yokluğu değil, BLE + kırpma sınırlaması.
+- Car Scanner'ın 18:54 tarihli `.brc` dosyasında yaklaşık 10 dakikalık **canlı
+  sayısal örnekler** var: `[VCU] Accelerator pedal PWM signal` 284 örnek,
+  ham gösterilen aralık `7–100`; `[IEM] ERAD Motor Speed` 281 örnek,
+  `−324–6229`; `[IEM] ERAD Actual Torque` 281 örnek, `0–181`. En yakın
+  zamanlı 277 örnekte pedal ile motor hızı/tork arasında yaklaşık `r=0,49/0,50`
+  ilişki var. Bu etiketler ve sayılar Car Scanner'ın ölçüm akışına kanıt,
+  **doğrudan Sensor Lab DID/decoder doğrulaması değil**. PWM'nin yüzde ölçeği
+  ve motor/tork birimleri bağımsız teyit gerektirir.
+- Sonraki hedef rastgele blok taramak değil, bu üç Car Scanner sinyalinin tam
+  ECU header + `22` DID + cevap baytları + ölçek formülünü edinmek. Tam HCI
+  dosyası veya uygulama protokol export'u elde edilirse `extract_hci_profile.py`
+  ile profil çıkar; BLE için ATT karakteristik verisini yeniden kurmak gerekebilir.
+  Ardından Mac'ten aynı sorguları salt-okunur replay ve pedal/hareket
+  kalibrasyonuyla doğrula; **ondan sonra** `CONFIRMED` kataloğa ekle.
+- Mevcut `tools/hci_capture_mac.sh` varsayılan olarak Bluetooth'u yeniden
+  başlatabildiğinden bu mevcut oturumda **kullanılmadı**. Sonraki yakalamada
+  Car Scanner/Bluetooth'u bugreport bitene kadar açık bırak.
+- 2026-09-15 takip araştırması: Kaydın `.brc` iç sensör ID'leri
+  (`0x00E30D51`, `0x00E30D41`, `0x00E30D40`) ECU header/DID **değil**.
+  Car Scanner APK içinde açık PID veritabanı bulunmadı; EX30 companion
+  runner'ın `pid_map.md`/`obd2/pids.py` dosyalarında bu üç sinyalin eşlemesi
+  yok. Tablet o anda ADB'ye bağlı değildi. O aşamadaki kanıtlarla pedal/RPM/tork
+  sorguları ve ölçekleri henüz çıkarılamıyor.
+- Uygulamanın HCI kayıt rehberi bugreport tamamlanana kadar Car Scanner ve
+  Bluetooth'u açık tutacak biçimde düzeltildi. `extract_hci_profile.py` sıfır
+  sorgulu profili artık dosyaya yazmıyor. Python unittest `8/8`, Android
+  `testDebugUnitTest lintDebug assembleDebug` başarılı. Canlı sensör kataloğuna
+  kanıtsız DID eklenmedi. Sonraki araç ziyaretinde **tam** HCI logu/protokol
+  export'u veya Car Scanner'ın sensör başına tam sorgu tanımı gerekli; ardından
+  Mac BLE salt-okunur replay + dur/hafif gaz/hareket bağımsız kalibrasyonu.
+
+## 2026-09-15 tam Honor HCI dosyası ve motor sinyali eşlemesi
+
+- Tablet tekrar USB'ye bağlandığında `adb shell ls -lah /data/log/bt` ile
+  bugreport'a dahil edilmemiş `btsnoop_hci_20260915_185317.log` bulundu.
+  Yerel kopya `captures/hci/btsnoop-full-candidate-20260915.log` (gitignore;
+  commit/push etme). 46.316 HCI paketin tümünde included=original; önceki
+  `BTSNOOP_LOG_SUMMARY` kırpılmış ayrı bir özetmiş. ADB `setprop
+  persist.bluetooth.btsnooplogmode full` reddedildi; mevcut mod boş. Tam
+  dosyayı almak için ayar değiştirme/Project Menu gerekmemiş.
+- Car Scanner sorgularının sonundaki yanıt-sayısı `1` (`22E3011` vb.) Python
+  profil çıkarıcıda DID'den ayrıldı. Aynı oturumun HCI cevapları ve `.brc`
+  kayıtları zamanla eşlendi; **284/284 pedal, 281/281 motor devri, 281/281
+  tork** değeri tam eşleşti: VCFRONT `D01601 / 22E301`, ECU-F `D01637 /
+  22E303` (u16−16384), ECU-F `D01637 / 22E304` (u16−8188).
+- `ObdCatalog.motorSignals` ve `ObdDecoders` bu salt-okunur sorguları içerir;
+  Motor sensörleri ekranı keşif JSON'u olmadan bunları gösterebilir. Fiziksel
+  EX30'da Sensor Lab bağlantısı/replay henüz yapılmadı; ekran bunu belirtir.
+  Sonraki araç ziyaretinde üç değeri Car Scanner/araç göstergesiyle **bağımsız
+  canlı karşılaştır**, PWM tabanı 7'yi gerçek pedal yüzde 0 sanma. Başarıdan
+  sonra ancak sanal motor sesi beslemesine bağla.
 
 ## 2026-09-13 fiziksel EX30 / Mac BLE saha sonucu
 
@@ -44,7 +112,10 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 - Menü 4, Car Scanner bağlı ve veri okumaya devam ederken bugreport alma
   sırasını gösterir. Bugreport bitene kadar Car Scanner ve Bluetooth
   kapatılmamalıdır.
-- Sonraki sıra: önce menü 1. Aday çıkarsa menü 1 aynı dört fazla ikinci kez
+- Tam HCI dosyası ve üç sorgu/decoder artık bulundu. Birinci öncelik araçta
+  Sensor Lab Android-Vlink ile bağımsız canlı karşılaştırmadır; aşağıdaki
+  eski saha sihirbazı pasif CAN yedek yoludur.
+  Menü 1'de aday çıkarsa menü 1 aynı dört fazla ikinci kez
   çalıştırılmalı; doğrudan `CONFIRMED` kataloğa eklenmemeli. Ham CAN yoksa menü
   2, throttle ECU görünmezse menü 3, tanı yolu da sonuçsuzsa menü 4.
 

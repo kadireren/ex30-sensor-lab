@@ -31,6 +31,9 @@ object ObdDecoders {
                 "hv_soh" -> f("%.2f %%", data.take(8).toLong(16) * 0.01f)
                 "odometer", "odometer_11bit" -> f("%d km", data.take(6).toLong(16))
                 "soc_display" -> f("%d %%", data.take(8).toLong(16))
+                "pedal_pwm" -> data.takeIf { it.length >= 2 }?.take(2)?.toInt(16)?.takeIf { it in 0..100 }?.let { f("%d %% PWM", it) }
+                "erad_motor_speed" -> data.takeIf { it.length >= 4 }?.take(4)?.toInt(16)?.let { f("%d rpm", it - 16384) }
+                "erad_actual_torque" -> data.takeIf { it.length >= 4 }?.take(4)?.toInt(16)?.let { f("%d Nm", it - 8188) }
                 "vehicle_speed", "wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr" -> f("%d km/h", data.take(2).toInt(16))
                 "brake_fl", "brake_fr", "brake_rl", "brake_rr" -> f("%.2f bar", data.take(4).toInt(16) / 100f)
                 else -> data

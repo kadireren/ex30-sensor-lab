@@ -24,7 +24,7 @@ class HciProfileTest(unittest.TestCase):
             (b"\x02noiseATSP7\r", 0), (b"\x02OK\r>", 1),
             (b"\x02ATSHD01635\r", 0), (b"\x02OK\r>", 1),
             (b"\x02ATCRA1EC6AE80\r", 0), (b"\x02OK\r>", 1),
-            (b"\x02224801\r", 0), (b"\x02624801A73A\r>", 1),
+            (b"\x022248011\r", 0), (b"\x02624801A73A\r>", 1),
             (b"\x0222F190\r", 0), (b"\x0262F190SECRET-VIN\r>", 1),
             (b"\x022E1234FFFF\r", 0), (b"\x026E1234\r>", 1),
         ]
@@ -44,6 +44,16 @@ class HciProfileTest(unittest.TestCase):
             with zipfile.ZipFile(archive_path, "w") as archive:
                 archive.writestr("FS/data/misc/bluetooth/logs/btsnoop_hci.log", data)
             self.assertEqual(data, module.load_snoop(archive_path))
+
+    def test_rejects_empty_profile_without_writing_file(self):
+        data = b"btsnoop\0" + struct.pack(">II", 1, 1002)
+        data += snoop_record(b"\x0222E", 0, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            input_path = Path(directory) / "truncated.log"
+            output_path = Path(directory) / "profile.json"
+            input_path.write_bytes(data)
+            self.assertEqual(1, module.main([str(input_path), str(output_path)]))
+            self.assertFalse(output_path.exists())
 
 
 if __name__ == "__main__":

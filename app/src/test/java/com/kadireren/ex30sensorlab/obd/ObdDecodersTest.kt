@@ -24,6 +24,19 @@ class ObdDecodersTest {
         assertNull(ObdDecoders.decodeBrakeMulti("62FD00FFFFFD0103E8FD0203E8FD0303E8"))
     }
 
+    @Test fun matchesCarScannerDriveMotorSignals() {
+        assertEquals("21 % PWM", ObdDecoders.decode("pedal_pwm", "E301", "1EC02E800462E30115"))
+        assertEquals("4171 rpm", ObdDecoders.decode("erad_motor_speed", "E303", "1EC6EE800562E303504B"))
+        assertEquals("-324 rpm", ObdDecoders.decode("erad_motor_speed", "E303", "62E3033EBC"))
+        assertEquals("0 Nm", ObdDecoders.decode("erad_actual_torque", "E304", "1EC6EE800562E3041FFC"))
+        assertEquals("181 Nm", ObdDecoders.decode("erad_actual_torque", "E304", "62E30420B1"))
+        assertNull(ObdDecoders.decode("pedal_pwm", "E301", "62E301FF"))
+        assertNull(ObdDecoders.decode("erad_motor_speed", "E303", "62E30350"))
+        assertNull(ObdDecoders.decode("erad_actual_torque", "E304", "62E3041F"))
+        assertEquals("D01601", ObdCatalog.motorSignals.first { it.key == "pedal_pwm" }.ecu?.header)
+        assertEquals("D01637", ObdCatalog.motorSignals.first { it.key == "erad_motor_speed" }.ecu?.header)
+    }
+
     @Test fun ignoresNoDataForEcuResponseDetection() {
         assertFalse(ObdDecoders.hasEcuResponse("NO DATA"))
         assertTrue(ObdDecoders.hasEcuResponse("7F2231"))

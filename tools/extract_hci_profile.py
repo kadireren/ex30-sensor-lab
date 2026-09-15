@@ -18,8 +18,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 HEADER = b"btsnoop\0"
-COMMAND_RE = re.compile(rb"(?i)(AT[A-Z0-9]+|22(?:[0-9A-F]{4})+|01[0-9A-F]{2}|0902)\r")
-READ_RE = re.compile(r"^(22)([0-9A-F]{4,})$|^(01)([0-9A-F]{2})$")
+COMMAND_RE = re.compile(rb"(?i)(AT[A-Z0-9]+|22(?:[0-9A-F]{4})+(?:[0-9A-F])?|01[0-9A-F]{2}(?:[0-9A-F])?|0902)\r")
+READ_RE = re.compile(r"^(22)([0-9A-F]{4}(?:[0-9A-F]{4})*)([0-9A-F])?$|^(01)([0-9A-F]{2})([0-9A-F])?$")
 
 
 @dataclass
@@ -153,8 +153,8 @@ def extract_profile(records: list[Record], source_session: str) -> dict:
         match = READ_RE.match(command)
         if not match:
             continue
-        service = match.group(1) or match.group(3)
-        did = match.group(2) or match.group(4)
+        service = match.group(1) or match.group(4)
+        did = match.group(2) or match.group(5)
         if service == "22" and not context.header:
             continue
         next_index = events[position + 1][0] if position + 1 < len(events) else len(records)
@@ -194,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
     try:
         records = parse_records(load_snoop(args.input))
         profile = extract_profile(records, args.input.name)
+        if not profile["queries"]:
+            raise ValueError("Tam salt-okunur sorgu bulunamadı; kırpılmış/eksik HCI kaydından profil üretilemez")
         args.output.write_text(json.dumps(profile, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
         print(f"{len(profile['queries'])} salt-okunur sorgu yazıldı: {args.output}")
         return 0
