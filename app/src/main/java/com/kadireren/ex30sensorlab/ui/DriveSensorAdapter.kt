@@ -18,6 +18,7 @@ import com.kadireren.ex30sensorlab.R
 import com.kadireren.ex30sensorlab.model.SampleStatus
 import com.kadireren.ex30sensorlab.model.SensorSample
 import com.kadireren.ex30sensorlab.model.SensorSource
+import kotlin.math.max
 
 enum class DriveLayout(val label: String) {
     GRID("Kart Izgara"), GAUGES("Dijital Kadran"), MODERN("Modern Panel"),
@@ -27,13 +28,29 @@ class DriveSensorAdapter(
     private val context: Context,
     var sourceFilter: SensorSource,
     var layout: DriveLayout,
-    private val pageSize: Int = 9,
+    var pageSize: Int = DEFAULT_PAGE_SIZE,
 ) : BaseAdapter() {
     private val samples = linkedMapOf<String, SensorSample>()
     var page: Int = 0
+    private var viewportHeightPx: Int = 0
+    private var rowGapPx: Int = dp(4)
 
     fun update(sample: SensorSample) { samples[sample.definition.key] = sample; notifyDataSetChanged() }
     fun clear() { samples.clear(); notifyDataSetChanged() }
+
+    /** Pack as many sensors as the ListView height allows, then stretch rows to fill it. */
+    fun fitToViewport(widthPx: Int, heightPx: Int, gapPx: Int = dp(4)): Boolean {
+        if (widthPx <= 0 || heightPx <= 0) return false
+        val nextPageSize = computePageSize(heightPx)
+        val changed = rowGapPx != gapPx || viewportHeightPx != heightPx || pageSize != nextPageSize
+        if (!changed) return false
+        rowGapPx = gapPx
+        viewportHeightPx = heightPx
+        pageSize = nextPageSize
+        page = page.coerceIn(0, pageCount() - 1)
+        notifyDataSetChanged()
+        return true
+    }
 
     fun pageCount(): Int {
         val count = orderedSamples().size
@@ -52,13 +69,23 @@ class DriveSensorAdapter(
         return ordered.drop(safePage * pageSize).take(pageSize)
     }
 
+    private fun computePageSize(heightPx: Int): Int {
+        val heightDp = heightPx / context.resources.displayMetrics.density
+        val minRowDp = if (isEx30Window()) 72f else 64f
+        val rows = max(4, (heightDp / minRowDp).toInt())
+        return when (layout) {
+            DriveLayout.GRID -> (COLUMNS * rows).coerceIn(12, 28)
+            DriveLayout.GAUGES -> (2 + COLUMNS * (rows - 1)).coerceIn(10, 26)
+            DriveLayout.MODERN -> (5 + COLUMNS * (rows - 1).coerceAtLeast(1)).coerceIn(13, 29)
+        }
+    }
+
     override fun getCount(): Int {
         val count = pageSamples().size
-        val columns = 4
         return when (layout) {
-            DriveLayout.GRID -> (count + columns - 1) / columns
-            DriveLayout.GAUGES -> if (count == 0) 0 else 1 + ((count - 2).coerceAtLeast(0) + columns - 1) / columns
-            DriveLayout.MODERN -> if (count == 0) 0 else if (count <= 5) 1 else 2
+            DriveLayout.GRID -> (count + COLUMNS - 1) / COLUMNS
+            DriveLayout.GAUGES -> if (count == 0) 0 else 1 + ((count - 2).coerceAtLeast(0) + COLUMNS - 1) / COLUMNS
+            DriveLayout.MODERN -> if (count == 0) 0 else 1 + ((count - 5).coerceAtLeast(0) + COLUMNS - 1) / COLUMNS
         }
     }
 
@@ -67,55 +94,124 @@ class DriveSensorAdapter(
 
     override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View = when (layout) {
         DriveLayout.GRID -> {
-            equalRow(pageSamples().drop(position * 4).take(4), if (isEx30Window()) 120 else 88, CardStyle.GRID, 4)
+            equalRow(pageSamples().drop(position * COLUMNS).take(COLUMNS), rowHeightFor(position), CardStyle.GRID, COLUMNS)
         }
         DriveLayout.GAUGES -> if (position == 0) {
-            equalRow(pageSamples().take(2), if (isEx30Window()) 260 else 142, CardStyle.GAUGE, 2)
+            equalRow(pageSamples().take(2), rowHeightFor(position), CardStyle.GAUGE, 2)
         } else {
-            equalRow(pageSamples().drop(2 + (position - 1) * 4).take(4), if (isEx30Window()) 92 else 72, CardStyle.COMPACT, 4)
+            equalRow(
+                pageSamples().drop(2 + (position - 1) * COLUMNS).take(COLUMNS),
+                rowHeightFor(position),
+                CardStyle.COMPACT,
+                COLUMNS,
+            )
         }
         DriveLayout.MODERN -> modernRow(position)
     }
 
     private fun modernRow(position: Int): View {
         val page = pageSamples()
-        if (position > 0) return equalRow(page.drop(5).take(4), if (isEx30Window()) 108 else 84, CardStyle.GRID, 4)
+        if (position > 0) {
+            return equalRow(
+                page.drop(5 + (position - 1) * COLUMNS).take(COLUMNS),
+                rowHeightFor(position),
+                CardStyle.GRID,
+                COLUMNS,
+            )
+        }
+        val heroHeight = rowHeightFor(0)
         return LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
-            addView(sensorCard(page.first(), CardStyle.HERO), weightedParams(dp(8)))
+            addView(sensorCard(page.first(), CardStyle.HERO), weightedParams(dp(6)))
             addView(LinearLayout(context).apply {
                 orientation = LinearLayout.VERTICAL
                 val remaining = page.drop(1).take(4)
-                val sideHeight = if (isEx30Window()) 126 else 86
-                addView(equalRow(remaining.take(2), sideHeight, CardStyle.COMPACT, 2), rowParams())
-                addView(equalRow(remaining.drop(2), sideHeight, CardStyle.COMPACT, 2), rowParams(dp(6)))
+                val sideHeight = ((heroHeight - dp(4)) / 2).coerceAtLeast(dp(64))
+                addView(equalRow(remaining.take(2), sideHeight, CardStyle.COMPACT, 2, attachListParams = false), rowParams())
+                addView(equalRow(remaining.drop(2), sideHeight, CardStyle.COMPACT, 2, attachListParams = false), rowParams(dp(4)))
             }, weightedParams())
-            layoutParams = AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(if (isEx30Window()) 258 else 178))
+            layoutParams = AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heroHeight)
         }
     }
 
-    private fun equalRow(items: List<SensorSample>, heightDp: Int, style: CardStyle, slots: Int) = LinearLayout(context).apply {
+    private fun equalRow(
+        items: List<SensorSample>,
+        heightPx: Int,
+        style: CardStyle,
+        slots: Int,
+        attachListParams: Boolean = true,
+    ) = LinearLayout(context).apply {
         orientation = LinearLayout.HORIZONTAL
         gravity = Gravity.CENTER_VERTICAL
         items.forEachIndexed { index, sample ->
-            addView(sensorCard(sample, style), weightedParams(if (index < slots - 1) dp(8) else 0))
+            addView(sensorCard(sample, style), weightedParams(if (index < slots - 1) dp(6) else 0))
         }
         repeat((slots - items.size).coerceAtLeast(0)) { index ->
-            addView(View(context), weightedParams(if (items.size + index < slots - 1) dp(8) else 0))
+            addView(View(context), weightedParams(if (items.size + index < slots - 1) dp(6) else 0))
         }
-        layoutParams = AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(heightDp))
+        if (attachListParams) {
+            layoutParams = AbsListView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPx)
+        } else {
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, heightPx)
+        }
+    }
+
+    private fun rowHeightFor(position: Int): Int {
+        val rows = getCount().coerceAtLeast(1)
+        val gaps = rowGapPx * (rows - 1).coerceAtLeast(0)
+        val minRow = dp(if (isEx30Window()) 68 else 60)
+        if (viewportHeightPx <= 0) {
+            return when {
+                layout == DriveLayout.GAUGES && position == 0 -> dp(if (isEx30Window()) 200 else 132)
+                layout == DriveLayout.MODERN && position == 0 -> dp(if (isEx30Window()) 220 else 160)
+                else -> dp(if (isEx30Window()) 96 else 78)
+            }
+        }
+        val base = ((viewportHeightPx - gaps) / rows).coerceAtLeast(minRow)
+        return when {
+            layout == DriveLayout.GAUGES && position == 0 && rows > 1 -> {
+                val remainingRows = rows - 1
+                val hero = (viewportHeightPx * 0.38f).toInt().coerceAtLeast(minRow * 2)
+                val rest = ((viewportHeightPx - gaps - hero) / remainingRows).coerceAtLeast(minRow)
+                if (rest == minRow && hero + remainingRows * minRow + gaps > viewportHeightPx) {
+                    (viewportHeightPx - gaps - remainingRows * minRow).coerceAtLeast(minRow)
+                } else hero
+            }
+            layout == DriveLayout.MODERN && position == 0 && rows > 1 -> {
+                val remainingRows = rows - 1
+                val hero = (viewportHeightPx * 0.34f).toInt().coerceAtLeast(minRow * 2)
+                val restBudget = viewportHeightPx - gaps - hero
+                if (restBudget < remainingRows * minRow) {
+                    (viewportHeightPx - gaps - remainingRows * minRow).coerceAtLeast(minRow)
+                } else hero
+            }
+            layout == DriveLayout.GAUGES && position > 0 && rows > 1 -> {
+                val hero = rowHeightFor(0)
+                ((viewportHeightPx - gaps - hero) / (rows - 1)).coerceAtLeast(minRow)
+            }
+            layout == DriveLayout.MODERN && position > 0 && rows > 1 -> {
+                val hero = rowHeightFor(0)
+                ((viewportHeightPx - gaps - hero) / (rows - 1)).coerceAtLeast(minRow)
+            }
+            else -> base
+        }
     }
 
     private fun sensorCard(sample: SensorSample, style: CardStyle): View = DriveCardView(context, style, sample.definition.key).apply {
         orientation = LinearLayout.VERTICAL
         gravity = Gravity.CENTER
-        setPadding(dp(if (style == CardStyle.GAUGE) 8 else 62), dp(5), dp(10), dp(5))
+        val iconPad = when (style) {
+            CardStyle.GAUGE -> 8
+            CardStyle.HERO -> 40
+            else -> 34
+        }
+        setPadding(dp(iconPad), dp(4), dp(8), dp(4))
         background = cardBackground(false)
         addView(TextView(context).apply {
             text = sample.definition.name
             setTextColor(context.getColor(R.color.lab_text))
-            textSize = when (style) { CardStyle.HERO -> 19f; CardStyle.GAUGE -> 18f; else -> 14f }
+            textSize = when (style) { CardStyle.HERO -> 16f; CardStyle.GAUGE -> 15f; else -> 12f }
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             maxLines = 2
@@ -123,7 +219,7 @@ class DriveSensorAdapter(
         addView(TextView(context).apply {
             text = sample.displayValue
             setTextColor(context.getColor(if (sample.definition.key.contains("BRAKE") || sample.definition.key.startsWith("brake") || sample.definition.key.contains("GEAR")) R.color.lab_success else R.color.lab_accent))
-            textSize = when (style) { CardStyle.HERO -> 52f; CardStyle.GAUGE -> 38f; CardStyle.COMPACT -> 21f; CardStyle.GRID -> 25f }
+            textSize = when (style) { CardStyle.HERO -> 44f; CardStyle.GAUGE -> 32f; CardStyle.COMPACT -> 18f; CardStyle.GRID -> 20f }
             setTypeface(typeface, Typeface.BOLD)
             gravity = Gravity.CENTER
             maxLines = 1
@@ -131,7 +227,7 @@ class DriveSensorAdapter(
     }
 
     private fun cardBackground(round: Boolean) = GradientDrawable().apply {
-        cornerRadius = dp(if (round) 72 else 14).toFloat()
+        cornerRadius = dp(if (round) 72 else 12).toFloat()
         setColor(context.getColor(R.color.lab_surface))
         setStroke(dp(if (round) 3 else 1), context.getColor(if (round) R.color.lab_accent else R.color.lab_border))
     }
@@ -171,7 +267,7 @@ class DriveSensorAdapter(
             super.onDraw(canvas)
             when (style) {
                 CardStyle.GAUGE -> {
-                    val inset = dp(15).toFloat()
+                    val inset = dp(12).toFloat()
                     val oval = RectF(inset, inset, width - inset, height * 1.55f)
                     canvas.drawArc(oval, 195f, 150f, false, accentPaint)
                     for (index in 0..8) {
@@ -182,8 +278,8 @@ class DriveSensorAdapter(
                         val ry = oval.height() / 2f
                         val outerX = cx + kotlin.math.cos(angle).toFloat() * rx
                         val outerY = cy + kotlin.math.sin(angle).toFloat() * ry
-                        val innerX = cx + kotlin.math.cos(angle).toFloat() * (rx - dp(9))
-                        val innerY = cy + kotlin.math.sin(angle).toFloat() * (ry - dp(9))
+                        val innerX = cx + kotlin.math.cos(angle).toFloat() * (rx - dp(8))
+                        val innerY = cy + kotlin.math.sin(angle).toFloat() * (ry - dp(8))
                         canvas.drawLine(innerX, innerY, outerX, outerY, roadPaint)
                     }
                 }
@@ -191,11 +287,11 @@ class DriveSensorAdapter(
                     val horizon = height * 0.58f
                     val mountains = Path().apply {
                         moveTo(0f, horizon)
-                        lineTo(width * .16f, horizon - dp(15))
-                        lineTo(width * .31f, horizon - dp(5))
-                        lineTo(width * .46f, horizon - dp(18))
-                        lineTo(width * .65f, horizon - dp(3))
-                        lineTo(width * .82f, horizon - dp(13))
+                        lineTo(width * .16f, horizon - dp(12))
+                        lineTo(width * .31f, horizon - dp(4))
+                        lineTo(width * .46f, horizon - dp(14))
+                        lineTo(width * .65f, horizon - dp(2))
+                        lineTo(width * .82f, horizon - dp(10))
                         lineTo(width.toFloat(), horizon)
                     }
                     canvas.drawPath(mountains, roadPaint)
@@ -222,9 +318,9 @@ class DriveSensorAdapter(
                 sensorKey.contains("TEMPERATURE") || sensorKey.contains("temp") -> R.color.lab_warning
                 else -> R.color.lab_text
             })
-            val x = dp(29).toFloat()
-            val y = dp(if (style == CardStyle.HERO) 30 else 24).toFloat()
-            val r = dp(if (style == CardStyle.HERO) 18 else 14).toFloat()
+            val x = dp(20).toFloat()
+            val y = dp(if (style == CardStyle.HERO) 24 else 18).toFloat()
+            val r = dp(if (style == CardStyle.HERO) 14 else 11).toFloat()
             when {
                 sensorKey.contains("SPEED") || sensorKey == "vehicle_speed" -> {
                     canvas.drawArc(RectF(x - r, y - r, x + r, y + r), 190f, 160f, false, iconPaint)
@@ -278,14 +374,19 @@ class DriveSensorAdapter(
         }
 
         private fun drawIconLetter(canvas: Canvas, x: Float, y: Float, text: String) {
-            canvas.drawCircle(x, y, dp(9).toFloat(), iconPaint)
+            canvas.drawCircle(x, y, dp(8).toFloat(), iconPaint)
             iconPaint.style = Paint.Style.FILL
             iconPaint.textAlign = Paint.Align.CENTER
-            iconPaint.textSize = dp(12).toFloat()
+            iconPaint.textSize = dp(11).toFloat()
             iconPaint.typeface = Typeface.DEFAULT_BOLD
             canvas.drawText(text, x, y + dp(4), iconPaint)
             iconPaint.style = Paint.Style.STROKE
         }
+    }
+
+    companion object {
+        const val COLUMNS = 4
+        const val DEFAULT_PAGE_SIZE = 16
     }
 }
 
@@ -297,10 +398,10 @@ object DriveSensorOrder {
         "PARKING_BRAKE_ON" to 12, "IGNITION_STATE" to 13, "EV_CHARGE_PORT_CONNECTED" to 14,
     )
     private val obdPriorities = mapOf(
-        "vehicle_speed" to 1, "wheel_fl" to 2, "wheel_fr" to 3, "wheel_rl" to 4,
-        "wheel_rr" to 5, "hv_power" to 6, "soc_display" to 7, "hv_voltage" to 8,
-        "hv_current" to 9, "odometer" to 10, "hv_temp_avg" to 12,
-        "hv_temp_max" to 13, "hv_soh" to 14,
+        "vehicle_speed" to 1, "pedal_pwm" to 2, "erad_motor_speed" to 3, "erad_actual_torque" to 4,
+        "wheel_fl" to 5, "wheel_fr" to 6, "wheel_rl" to 7, "wheel_rr" to 8,
+        "hv_power" to 9, "soc_display" to 10, "hv_voltage" to 11, "hv_current" to 12,
+        "odometer" to 13, "hv_temp_avg" to 14, "hv_temp_max" to 15, "hv_soh" to 16,
     )
     fun priority(key: String, source: SensorSource): Int = when (source) {
         SensorSource.VHAL -> vhalPriorities[key] ?: 100

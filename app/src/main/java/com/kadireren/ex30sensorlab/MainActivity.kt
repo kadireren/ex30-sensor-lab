@@ -239,7 +239,7 @@ class MainActivity : Activity() {
             setPadding(dp(20), dp(4), dp(20), dp(4))
         }
         row2.addView(menuCard("3", "Sensör Keşfi", "Faz 1–2 · HCI + kalibrasyon") { showScanner() }, menuCardLayoutParams())
-        row2.addView(menuCard("4", "Sürüş Görünümü", "Büyük yazı · sayfalı okuma") { showDriveView() }, menuCardLayoutParams(dp(16)))
+        row2.addView(menuCard("4", "Sürüş Görünümü", "Tam ekran · yoğun sensör ızgarası") { showDriveView() }, menuCardLayoutParams(dp(16)))
         root.addView(row2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val homeActions = controlRow().apply { setPadding(dp(20), dp(5), dp(20), dp(5)) }
         homeActions.addView(homeActionButton("OBD'ye bağlan", color(R.color.lab_accent), color(R.color.lab_accent_surface)) {
@@ -314,32 +314,40 @@ class MainActivity : Activity() {
         val adapter = DriveSensorAdapter(this, SensorSource.VHAL, driveLayout()).also { driveAdapter = it }
         val root = baseScreen("Sürüş Görünümü", "Canlı sensör değerleri", true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status").also { driveStatusView = it }
-        val sourceRow = controlRow().apply { setPadding(dp(18), dp(8), dp(18), dp(6)) }
-        driveSourceVhalButton = largeTabButton("VHAL") { selectDriveSource(SensorSource.VHAL, adapter, status) }
-        driveSourceObdButton = largeTabButton("OBD") { selectDriveSource(SensorSource.OBD, adapter, status) }
+        val sourceRow = controlRow().apply { setPadding(dp(12), dp(4), dp(12), dp(2)) }
+        driveSourceVhalButton = driveTabButton("VHAL") { selectDriveSource(SensorSource.VHAL, adapter, status) }
+        driveSourceObdButton = driveTabButton("OBD") { selectDriveSource(SensorSource.OBD, adapter, status) }
         sourceRow.addView(driveSourceVhalButton)
         sourceRow.addView(driveSourceObdButton)
         var layoutButton: Button? = null
-        layoutButton = largeTabButton(adapter.layout.label) { showDriveLayoutPicker(adapter, layoutButton) }
+        layoutButton = driveTabButton(adapter.layout.label) { showDriveLayoutPicker(adapter, layoutButton) }
         sourceRow.addView(layoutButton)
         root.addView(sourceRow)
-        drivePageLabel = label("VHAL · Sayfa 1 / 1", 17f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
-            setPadding(0, dp(4), 0, dp(4))
+        drivePageLabel = label("VHAL · Sayfa 1 / 1", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+            setPadding(0, dp(2), 0, dp(2))
         }
         root.addView(drivePageLabel)
-        root.addView(label("Sağa/sola kaydır: sayfa değiştir · 9 sensör/sayfa", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
-            setPadding(dp(18), 0, dp(18), dp(4))
-        })
-        root.addView(ListView(this).apply {
-            dividerHeight = dp(8)
-            setPadding(dp(18), dp(6), dp(18), dp(6))
+        val listView = ListView(this).apply {
+            dividerHeight = dp(4)
+            setPadding(dp(10), dp(2), dp(10), dp(4))
             clipToPadding = false
             this.adapter = adapter
-        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+        root.addView(listView, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
+        listView.addOnLayoutChangeListener { _, left, top, right, bottom, _, _, _, _ ->
+            val width = right - left - listView.paddingLeft - listView.paddingRight
+            val height = bottom - top - listView.paddingTop - listView.paddingBottom
+            if (width > 0 && height > 0 && adapter.fitToViewport(width, height, listView.dividerHeight)) {
+                refreshDrivePage(adapter, status)
+            }
+        }
         root.post {
             val density = resources.displayMetrics.density
-            Log.i("EX30_LAYOUT", "widthPx=${root.width} heightPx=${root.height} density=$density widthDp=${root.width / density} heightDp=${root.height / density} orientation=${resources.configuration.orientation}")
+            Log.i(
+                "EX30_LAYOUT",
+                "widthPx=${root.width} heightPx=${root.height} listH=${listView.height} pageSize=${adapter.pageSize} density=$density widthDp=${root.width / density} heightDp=${root.height / density} orientation=${resources.configuration.orientation}",
+            )
         }
         refreshDrivePage(adapter, status)
 
@@ -378,7 +386,17 @@ class MainActivity : Activity() {
                 adapter.layout = layouts[selected]
                 getSharedPreferences("lab", MODE_PRIVATE).edit().putString("drive_layout", adapter.layout.name).apply()
                 button?.text = adapter.layout.label
-                adapter.notifyDataSetChanged()
+                val list = findDriveListView()
+                if (list != null && list.width > 0 && list.height > 0) {
+                    adapter.fitToViewport(
+                        list.width - list.paddingLeft - list.paddingRight,
+                        list.height - list.paddingTop - list.paddingBottom,
+                        list.dividerHeight,
+                    )
+                } else {
+                    adapter.notifyDataSetChanged()
+                }
+                refreshDrivePage(adapter, driveStatusView)
                 dialog.dismiss()
             }
             .setNegativeButton("Vazgeç", null)
@@ -386,8 +404,23 @@ class MainActivity : Activity() {
     }
 
     private fun driveLayout(): DriveLayout = runCatching {
-        DriveLayout.valueOf(getSharedPreferences("lab", MODE_PRIVATE).getString("drive_layout", DriveLayout.MODERN.name)!!)
-    }.getOrDefault(DriveLayout.MODERN)
+        DriveLayout.valueOf(getSharedPreferences("lab", MODE_PRIVATE).getString("drive_layout", DriveLayout.GRID.name)!!)
+    }.getOrDefault(DriveLayout.GRID)
+
+    private fun findDriveListView(): ListView? {
+        val content = findViewById<ViewGroup>(android.R.id.content) ?: return null
+        return content.findListView()
+    }
+
+    private fun ViewGroup.findListView(): ListView? {
+        for (index in 0 until childCount) {
+            when (val child = getChildAt(index)) {
+                is ListView -> return child
+                is ViewGroup -> child.findListView()?.let { return it }
+            }
+        }
+        return null
+    }
 
     private fun selectDriveSource(source: SensorSource, adapter: DriveSensorAdapter, status: TextView?) {
         if (driveSource == source) return
@@ -413,7 +446,8 @@ class MainActivity : Activity() {
         adapter.page = (drivePages[driveSource] ?: 0).coerceIn(0, adapter.pageCount() - 1)
         drivePages[driveSource] = adapter.page
         val sourceLabel = if (driveSource == SensorSource.VHAL) "VHAL" else "OBD"
-        drivePageLabel?.text = "$sourceLabel · Sayfa ${adapter.page + 1} / ${adapter.pageCount()}"
+        drivePageLabel?.text =
+            "$sourceLabel · Sayfa ${adapter.page + 1} / ${adapter.pageCount()} · ${adapter.pageSize} sensör/sayfa · kaydır"
         updateDriveSourceButtons()
         status?.text = driveStatusText()
     }
@@ -1494,6 +1528,18 @@ class MainActivity : Activity() {
         setPadding(dp(18), 0, dp(18), 0)
         setOnClickListener { click() }
         layoutParams = LinearLayout.LayoutParams(0, dp(64), 1f).apply { marginEnd = dp(12) }
+    }
+
+    private fun driveTabButton(text: String, click: () -> Unit) = Button(this).apply {
+        this.text = text
+        setTextColor(Color.WHITE)
+        textSize = 17f
+        isAllCaps = false
+        setTypeface(typeface, Typeface.BOLD)
+        background = rounded(color(R.color.lab_surface_alt), color(R.color.lab_accent), dp(10))
+        setPadding(dp(10), 0, dp(10), 0)
+        setOnClickListener { click() }
+        layoutParams = LinearLayout.LayoutParams(0, dp(46), 1f).apply { marginEnd = dp(8) }
     }
 
     private fun hexInput(hint: String) = EditText(this).apply {
