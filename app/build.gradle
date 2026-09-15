@@ -18,8 +18,8 @@ android {
         applicationId 'com.kadireren.ex30sensorlab'
         minSdk 30
         targetSdk 35
-        versionCode 12
-        versionName '1.0.11'
+        versionCode 15
+        versionName '1.0.12'
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 
