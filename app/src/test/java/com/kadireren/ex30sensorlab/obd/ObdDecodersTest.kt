@@ -19,11 +19,6 @@ class ObdDecodersTest {
         assertEquals("100 %", ObdDecoders.decode("soc_display", "D901", "62D90100000064"))
     }
 
-    @Test fun decodesMultiframeBrakeAndRejectsGarbage() {
-        assertEquals("10.00 bar", ObdDecoders.decodeBrakeMulti("0: 62 FD00 03E8 FD01 03E8 1: FD02 03E8 FD03 03E8"))
-        assertNull(ObdDecoders.decodeBrakeMulti("62FD00FFFFFD0103E8FD0203E8FD0303E8"))
-    }
-
     @Test fun matchesCarScannerDriveMotorSignals() {
         assertEquals("21 % PWM", ObdDecoders.decode("pedal_pwm", "E301", "1EC02E800462E30115"))
         assertEquals("4171 rpm", ObdDecoders.decode("erad_motor_speed", "E303", "1EC6EE800562E303504B"))
@@ -35,6 +30,8 @@ class ObdDecodersTest {
         assertNull(ObdDecoders.decode("erad_actual_torque", "E304", "62E3041F"))
         assertEquals("D01601", ObdCatalog.motorSignals.first { it.key == "pedal_pwm" }.ecu?.header)
         assertEquals("D01637", ObdCatalog.motorSignals.first { it.key == "erad_motor_speed" }.ecu?.header)
+        assertTrue(ObdCatalog.motorSignals.all { it in ObdCatalog.confirmed })
+        assertTrue(ObdCatalog.confirmed.none { it.key.startsWith("brake_") || it.did.contains("FD00") })
     }
 
     @Test fun ignoresNoDataForEcuResponseDetection() {

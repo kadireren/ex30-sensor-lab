@@ -7,9 +7,9 @@ uygulaması.
 ## Ekranlar
 
 - **AAOS Verileri:** 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil).
-- **OBD Verileri:** Doğrulanmış EX30 ECU/DID değerleri; üstte yalnız log export.
+- **OBD Verileri:** EX30'da canlı doğrulanmış ECU/DID değerleri; çözülemeyen fren basıncı sorguları listeden çıkarıldı. Üstte yalnız log export.
   Bağlantı ana menüden; ekrana girince otomatik okuma.
-- **Sensör Keşfi / Motor sensörleri:** HCI replay, kalibrasyon, onaylı motor DID
+- **Sensör Keşfi / Motor sensörleri:** HCI replay, kalibrasyon, EX30'da canlı doğrulanmış gaz PWM, ERAD motor devri ve tork DID
   LIVE (Faz 1–3).
 - **Ana menü:** OBD'ye bağlan (Android-Vlink öncelikli), Diğer cihazlar, OBD
   kes, uygulamadan çıkış.

@@ -179,7 +179,7 @@ Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4
 |------|--------|
 | VHAL okuma | Dashboard kanıtlı 14 tanım (`VhalCatalog`; HV V/ A ve ABS hız VHAL'den kaldırıldı) |
 | OBD bağlantı | IOS-Vlink / `Android-Vlink`, ELM init, BECM link testi |
-| OBD polling | ECU batch, türetilmiş HV güç, fren fallback |
+| OBD polling | ECU batch, türetilmiş HV güç; çözülemeyen fren basıncı güncel katalogdan çıkarıldı |
 | Sensör Keşfi UI | Adım adım: VHAL probe, OBD keşif, motor DID taraması, HCI rehberi |
 | `VhalProbe` | Gaz/RPM/güç/hız tek dokunuş testi + özet metin |
 | Scanner | Aday izleme, ECU yoklama, 256 DID sweep, profil replay |
@@ -193,7 +193,7 @@ Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4
 |--------|--------|
 | `224801` BECM HV voltaj | **LIVE** (~244 V — düşük SOC normal) |
 | `22F40D` ECU-E hız | **LIVE** (park 0 km/h) |
-| `22FD00…` fren ortalaması | **ERROR** (decode; sonraki commit'lerde fallback iyileştirildi) |
+| `22FD00…` fren ortalaması | **ERROR** (decode; sonraki fallback denemeleri de kullanımını doğrulamadı, güncel OBD ekranından çıkarıldı) |
 | Scanner aday izleme | Çalışıyor; çoğu aday NRC veya sabit |
 
 ### 2026-09-13 Mac BLE canlı tarama ve kalibrasyon
@@ -289,10 +289,11 @@ bire bir** çıktı:
 
 İlk eşleşen örnekler: `62E30115` → 21; `62E303504B` → 4171;
 `62E3041FFC` → 0. Son kayıtta motor hızı −324…6229, tork 0…181.
-Bu **ECU/DID/Car Scanner ölçeğini** doğrular; fiziksel birimi ve Sensor Lab'in
-EX30 üzerinden bağımsız canlı replay'ini ayrıca doğrulamak gerekir. Üç sorgu
-yerleşik salt-okunur kataloğa ve Motor sensörleri ekranına eklendi; ekran
-araçta Sensor Lab canlı tekrar testinin beklediğini belirtir.
+Bu **ECU/DID/Car Scanner ölçeğini** doğrular. Ardından kullanıcı üç sinyalin
+Sensor Lab ile fiziksel EX30'da canlı çalıştığını doğruladı. Üç sorgu
+yerleşik salt-okunur `CONFIRMED` kataloğa ve Motor sensörleri ekranına eklendi;
+bekleyen canlı test uyarısı kaldırıldı. PWM'nin 7 tabanı doğrudan pedal yüzdesi
+olarak yorumlanmaz.
 
 ### Emülatör
 
@@ -357,8 +358,8 @@ yapılmadı** (kullanıcı sonuç paylaşmadı).
 Sensor Lab'in VHAL yolunda gaz pedalı ve gerçek motor RPM okunmuyor. OBD
 yolunda 2026-09-15 tam HCI + Car Scanner kaydı, gaz pedalı PWM `22E301`,
 ERAD motor hızı `22E303` ve tork `22E304` ECU/DID/ölçeklerini bire bir
-eşledi; uygulama bunları salt-okunur katalogda sunuyor. **Sensor Lab'in kendi
-adaptörüyle EX30 üzerinde canlı tekrar testi henüz yapılmadı.** PWM'nin 7
+eşledi; kullanıcı ardından üçünün Sensor Lab ile EX30'da canlı çalıştığını
+doğruladı. Uygulama bunları `CONFIRMED` katalogda sunuyor. PWM'nin 7
 tabanı gerçek pedal yüzde 0/7 yorumuyla karıştırılmamalı.
 
 Üç repoda ortak çalışan yol:
@@ -419,8 +420,8 @@ gh api repos/kadireren/ex-30-driver-display-private/contents/ex30-companion-runn
   alındı; pedal PWM, motor hız ve tork sayısal örnekleri görüldü.
 - [x] Bu üç sinyalin ECU header + DID + cevap baytları + Car Scanner ölçeği
   HCI/BRC eşlemesiyle bulundu (284/284, 281/281, 281/281).
-- [ ] Sensor Lab'in Android-Vlink bağlantısıyla araçta üç DID'i salt-okunur
-  replay et ve Car Scanner/araç göstergesiyle bağımsız canlı karşılaştır.
+- [x] Sensor Lab'in Android-Vlink bağlantısıyla araçta üç DID'in canlı çalışması
+  kullanıcı tarafından doğrulandı; karşılaştırma sayısal kayıtları henüz belgeye eklenmedi.
 - [ ] Mac `ATMA` pasif CAN `%0 → %25 → %50 → %0` korelasyonu; 29-bit veri
   yoksa 11-bit otomatik denenir (`tools/mac_ble_throttle_discovery.py`)
 - [ ] Pasif CAN yoksa hızlı 19-adres ECU keşfi; gerekirse `D01601–D017FF`

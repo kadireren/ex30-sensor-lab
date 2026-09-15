@@ -20,7 +20,6 @@ object ObdDecoders {
             val value = Regex("(\\d+(?:\\.\\d+)?)").find(raw)?.groupValues?.get(1)?.toFloatOrNull()
             return value?.takeIf { it in 6f..16.5f }?.let { f("%.2f V", it) }
         }
-        if (definitionKey == "brake_multi") return decodeBrakeMulti(raw)
         val data = extractData(raw, did) ?: return null
         return try {
             when (definitionKey) {
@@ -35,20 +34,11 @@ object ObdDecoders {
                 "erad_motor_speed" -> data.takeIf { it.length >= 4 }?.take(4)?.toInt(16)?.let { f("%d rpm", it - 16384) }
                 "erad_actual_torque" -> data.takeIf { it.length >= 4 }?.take(4)?.toInt(16)?.let { f("%d Nm", it - 8188) }
                 "vehicle_speed", "wheel_fl", "wheel_fr", "wheel_rl", "wheel_rr" -> f("%d km/h", data.take(2).toInt(16))
-                "brake_fl", "brake_fr", "brake_rl", "brake_rr" -> f("%.2f bar", data.take(4).toInt(16) / 100f)
                 else -> data
             }
         } catch (_: Exception) {
             null
         }
-    }
-
-    fun decodeBrakeMulti(raw: String): String? {
-        val clean = cleanHex(raw)
-        val match = Regex("62FD00([0-9A-F]{4}).*?FD01([0-9A-F]{4}).*?FD02([0-9A-F]{4}).*?FD03([0-9A-F]{4})").find(clean) ?: return null
-        val values = match.groupValues.drop(1).map { it.toInt(16) }
-        if (values.any { it > 0x4000 }) return null
-        return f("%.2f bar", values.average() / 100.0)
     }
 
     fun derivedPowerKw(voltageRaw: String, currentRaw: String): Float? {

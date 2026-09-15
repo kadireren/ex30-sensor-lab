@@ -2,6 +2,12 @@
 
 Son güncelleme: 2026-09-15
 
+## 2026-09-15 Sensor Lab canlı motor doğrulaması ve OBD sadeleştirmesi
+
+- Kullanıcı, fiziksel EX30'da Sensor Lab'in gaz pedalı PWM (`VCFRONT 22E301`), ERAD motor devri (`ECU-F 22E303`) ve gerçek tork (`ECU-F 22E304`) değerlerinin uygulamada çalıştığını doğruladı. Üçü `ObdCatalog.confirmed` içinde yer alır; Motor sensörleri ekranındaki bekleyen canlı test uyarısı kaldırıldı.
+- Önceden çözülemeyen `FD00`–`FD03` fren basıncı sorguları OBD doğrulanmış kataloğundan ve otomatik polling/fallback akışından çıkarıldı. Tarihsel HCI/kalibrasyon kanıtları keşif notlarında korunur; bu değerler artık OBD Verileri ekranında sunulmaz.
+- HCI/Car Scanner eşlemesi ECU/DID ve decoder formüllerini destekler; kullanıcının canlı Sensor Lab doğrulaması bağımsız uygulama çalışmasını tamamlar. PWM'nin 7 tabanı doğrudan pedal yüzde 0/7 yorumu değildir.
+
 **Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
 bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 
@@ -67,11 +73,10 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
   tork** değeri tam eşleşti: VCFRONT `D01601 / 22E301`, ECU-F `D01637 /
   22E303` (u16−16384), ECU-F `D01637 / 22E304` (u16−8188).
 - `ObdCatalog.motorSignals` ve `ObdDecoders` bu salt-okunur sorguları içerir;
-  Motor sensörleri ekranı keşif JSON'u olmadan bunları gösterebilir. Fiziksel
-  EX30'da Sensor Lab bağlantısı/replay henüz yapılmadı; ekran bunu belirtir.
-  Sonraki araç ziyaretinde üç değeri Car Scanner/araç göstergesiyle **bağımsız
-  canlı karşılaştır**, PWM tabanı 7'yi gerçek pedal yüzde 0 sanma. Başarıdan
-  sonra ancak sanal motor sesi beslemesine bağla.
+  Motor sensörleri ekranı keşif JSON'u olmadan bunları gösterebilir. İlk HCI
+  eşlemesi sonrasında bekleyen fiziksel EX30 Sensor Lab canlı doğrulaması
+  kullanıcı tarafından tamamlandı. PWM tabanı 7'yi gerçek pedal yüzde 0 sanma;
+  sanal motor sesi beslemesi ayrı uygulamada ayrıca değerlendirilmeli.
 
 ## 2026-09-13 fiziksel EX30 / Mac BLE saha sonucu
 
@@ -112,8 +117,8 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 - Menü 4, Car Scanner bağlı ve veri okumaya devam ederken bugreport alma
   sırasını gösterir. Bugreport bitene kadar Car Scanner ve Bluetooth
   kapatılmamalıdır.
-- Tam HCI dosyası ve üç sorgu/decoder artık bulundu. Birinci öncelik araçta
-  Sensor Lab Android-Vlink ile bağımsız canlı karşılaştırmadır; aşağıdaki
+- Tam HCI dosyası ve üç sorgu/decoder bulundu; Sensor Lab ile araçta canlı
+  çalışma doğrulandı. Aşağıdaki
   eski saha sihirbazı pasif CAN yedek yoludur.
   Menü 1'de aday çıkarsa menü 1 aynı dört fazla ikinci kez
   çalıştırılmalı; doğrudan `CONFIRMED` kataloğa eklenmemeli. Ham CAN yoksa menü
@@ -202,8 +207,8 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 - `obd/`: Classic Bluetooth SPP ile eşleştirilmiş `Android-Vlink` bağlantısı,
   secure bağlantı ve insecure fallback, tek komut kuyruğu, `>` prompt okuma,
   timeout sonrası tek kontrollü yeniden bağlantı ve ECU bağlamını geri yükleme.
-- `obd/ObdCatalog.kt`: doğrulanmış BECM, VCFRONT, ECU-E ve adaptör değerleri;
-  fren birleşik sorgusu beş ret sonrasında ayrı sorgulara düşer; odak modu var.
+- `obd/ObdCatalog.kt`: doğrulanmış BECM, VCFRONT, ECU-E, ECU-F ve adaptör değerleri;
+  gaz PWM, ERAD devir/tork canlı doğrulandı; çözülemeyen fren basıncı kaldırıldı; odak modu var.
 - `scanner/`: aday PID izleme, kısa ECU `F190` yoklaması, seçilen ECU'da en
   fazla 256 DID taraması, yaklaşık 3 sorgu/sn, canlı ilerleme ve NRC etiketi.
 - `scanner/ScanProfileParser.kt`: HCI profilini izin listesinden geçirir;
@@ -280,7 +285,7 @@ listesi boştu.
 2. Emülatörde `connectedDebugAndroidTest` çalıştır. Emülatör gerçek Volvo VHAL
    veya fiziksel Bluetooth SPP davranışını kanıtlamaz.
 3. EX30 üzerinde `Android-Vlink` ile `ATI`, BECM `4801/491B`, hız, SOC,
-   kilometre, sıcaklık ve fren okumalarını Car Scanner/araç göstergesiyle
+   kilometre ve sıcaklık okumalarını Car Scanner/araç göstergesiyle
    karşılaştır.
 4. Güç işaretini hızlanma ve lift-off regen ile kalibre et.
 5. Scanner'ın hareket başladığında durduğunu ve JSONL içinde hiçbir yazma

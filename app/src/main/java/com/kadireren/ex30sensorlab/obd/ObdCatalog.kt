@@ -43,11 +43,6 @@ object ObdCatalog {
         p("wheel_fr", "Teker hızı ön sağ", "2B07", "km/h", EcuContexts.ECU_E, 2f),
         p("wheel_rl", "Teker hızı arka sol", "2B08", "km/h", EcuContexts.ECU_E, 2f),
         p("wheel_rr", "Teker hızı arka sağ", "2B09", "km/h", EcuContexts.ECU_E, 2f),
-        p("brake_multi", "Fren basıncı ortalaması", "FD00FD01FD02FD03", "bar", EcuContexts.ECU_E, 8f),
-        p("brake_fl", "Fren basıncı FD00", "FD00", "bar", EcuContexts.ECU_E, 0f),
-        p("brake_fr", "Fren basıncı FD01", "FD01", "bar", EcuContexts.ECU_E, 0f),
-        p("brake_rl", "Fren basıncı FD02", "FD02", "bar", EcuContexts.ECU_E, 0f),
-        p("brake_rr", "Fren basıncı FD03", "FD03", "bar", EcuContexts.ECU_E, 0f),
         ObdPidDefinition("voltage_12v", "12 V besleme", "ATRV", "V", null, 0.1f, ResearchStatus.CONFIRMED),
     ) + motorSignals
 

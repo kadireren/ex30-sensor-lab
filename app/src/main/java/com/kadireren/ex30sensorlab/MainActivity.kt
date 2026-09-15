@@ -688,7 +688,7 @@ class MainActivity : Activity() {
 
         guideContent.addView(scannerSectionCard(
             "Faz 3 · Onaylanan sensörleri canlı izle",
-            "HCI/Car Scanner sürüş kaydıyla eşlenen gaz PWM, ERAD motor devri ve tork sorgularını OBD üzerinden okur; araçta Sensor Lab canlı testi bekliyor.",
+            "HCI/Car Scanner kaydıyla eşlenen ve EX30'da Sensor Lab ile canlı doğrulanan gaz PWM, ERAD motor devri ve tork sorgularını OBD üzerinden okur.",
             "Canlı sensör ekranını aç",
             "Yerleşik üç motor sorgusunu OBD polling ile LIVE dener.",
         ) { showMotorSensors() })
@@ -1573,7 +1573,7 @@ class MainActivity : Activity() {
     }
 
     private fun motorScreenStatusText(state: DiscoveryStoreState = DiscoveredSensorStore.snapshot()): String {
-        return "Gaz PWM · ERAD devri · tork: HCI doğrulandı · Manuel keşif: ${state.confirmedSensors.size} · Araçta canlı test bekliyor"
+        return "Gaz PWM · ERAD devri · tork: EX30'da canlı doğrulandı · Manuel keşif: ${state.confirmedSensors.size}"
     }
 
     private fun builtInMotorSignal(target: DiscoveryTarget) = ObdCatalog.motorSignals.first { definition ->
@@ -1594,7 +1594,7 @@ class MainActivity : Activity() {
                     displayValue = "Bekleniyor…",
                     monotonicTimestampMs = SystemClock.elapsedRealtime(),
                     status = SampleStatus.WAITING,
-                    detail = "OBD okuma başlatın · araçta canlı tekrar testi bekliyor",
+                    detail = "OBD okuma başlatın",
                 ),
             )
         }

@@ -25,8 +25,6 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
     private val timestamps = mutableMapOf<String, ArrayDeque<Long>>()
     private val rawByKey = mutableMapOf<String, TimedRaw>()
     @Volatile private var focusKey: String? = null
-    private var brakeFailures = 0
-    private var brakeFallback = false
     private var odometerFailures = 0
     private var odometerFallback = false
 
@@ -81,8 +79,6 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         nextDue.clear()
         timestamps.clear()
         rawByKey.clear()
-        brakeFailures = 0
-        brakeFallback = false
         odometerFailures = 0
         odometerFallback = false
     }
@@ -98,29 +94,17 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
                 ?: ObdDecoders.decode(definition.key, definition.did, raw)
             val success = display != null
             querySucceeded = success
-            recordBrakeResult(definition.key, raw, success)
             recordOdometerResult(definition.key, raw, success)
             if (success) rawByKey[definition.key] = TimedRaw(raw, SystemClock.elapsedRealtime())
             else rawByKey.remove(definition.key)
             onSample(sample(definition, raw, display ?: "Yanıt çözülemedi", started, success))
             emitPowerIfReady(onSample, started)
-            emitBrakeAverageIfReady(onSample, started)
         } catch (e: Exception) {
             onSample(sample(definition, "", e.message ?: "OBD hatası", started, false))
             onState(e.message ?: "OBD okuma hatası")
         }
         val delayMs = if (querySucceeded) intervalMs(definition) else ERROR_RETRY_DELAY_MS
         nextDue[definition.key] = SystemClock.elapsedRealtime() + delayMs
-    }
-
-    private fun recordBrakeResult(key: String, raw: String, success: Boolean) {
-        if (key != "brake_multi") return
-        if (success) {
-            brakeFailures = 0
-            return
-        }
-        if (!ObdDecoders.hasEcuResponse(raw)) return
-        if (++brakeFailures >= BRAKE_MULTI_MAX_FAILURES) brakeFallback = true
     }
 
     private fun recordOdometerResult(key: String, raw: String, success: Boolean) {
@@ -141,8 +125,6 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         }
         return discovered + ObdCatalog.confirmed.filter {
             when {
-                it.key == "brake_multi" -> !brakeFallback
-                it.key.startsWith("brake_") -> brakeFallback && it.key != "brake_multi"
                 it.key == "odometer" -> !odometerFallback
                 it.key == "odometer_11bit" -> odometerFallback
                 else -> it.targetHz > 0f
@@ -152,7 +134,7 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
 
     private fun intervalMs(def: ObdPidDefinition): Long {
         if (focusKey != null) return FOCUS_INTERVAL_MS
-        val hz = if (def.key.startsWith("brake_") && brakeFallback) 8f else def.targetHz
+        val hz = def.targetHz
         return if (hz <= 0f) 5_000L else (1000f / hz).toLong().coerceAtLeast(25L)
     }
 
@@ -183,34 +165,10 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         onSample(sample(def, "4801 + 4802", String.format(Locale.US, "%.2f kW", power), started, true))
     }
 
-    private fun emitBrakeAverageIfReady(onSample: (SensorSample) -> Unit, started: Long) {
-        if (!brakeFallback) return
-        val bars = BRAKE_CHANNEL_KEYS.mapNotNull { key ->
-            rawByKey[key]?.takeIf { SystemClock.elapsedRealtime() - it.timestampMs <= MAX_DERIVED_SAMPLE_SKEW_MS }?.let { timed ->
-                ObdDecoders.decode(key, ObdCatalog.confirmed.first { it.key == key }.did, timed.raw)
-                    ?.removeSuffix(" bar")?.toFloatOrNull()
-            }
-        }
-        if (bars.size < BRAKE_CHANNEL_KEYS.size) return
-        val def = ObdCatalog.confirmed.first { it.key == "brake_multi" }
-        val average = bars.average()
-        onSample(
-            sample(
-                def,
-                bars.joinToString(prefix = "FD00-FD03 ort.: ", separator = "/") { String.format(Locale.US, "%.2f", it) },
-                String.format(Locale.US, "%.2f bar", average),
-                started,
-                true,
-            ),
-        )
-    }
-
     companion object {
-        private const val BRAKE_MULTI_MAX_FAILURES = 5
         private const val ODOMETER_MAX_FAILURES = 3
         private const val MAX_DERIVED_SAMPLE_SKEW_MS = 1_000L
         private const val ERROR_RETRY_DELAY_MS = 1_000L
         private const val FOCUS_INTERVAL_MS = 33L
-        private val BRAKE_CHANNEL_KEYS = listOf("brake_fl", "brake_fr", "brake_rl", "brake_rr")
     }
 }
