@@ -8,15 +8,39 @@ import org.junit.Test
 
 class ObdDecodersTest {
     @Test fun decodesConfirmedSignals() {
-        assertEquals("428.10 V", ObdDecoders.decode("hv_voltage", "4801", "62 48 01 A7 3A"))
+        assertEquals("448.35 V", ObdDecoders.decode("hv_voltage", "4803", "62 48 03 AF 23"))
+        assertEquals("91.954 %", ObdDecoders.decode("obd_soc", "4801", "62 48 01 B3 99"))
+        assertEquals(94.576f, ObdDecoders.derivedDisplaySoc("62 48 01 B3 99")!!, 0.001f)
         assertEquals("213.0 A", ObdDecoders.decode("hv_current", "4802", "6248024852"))
         assertEquals("-61.0 A", ObdDecoders.decode("hv_current", "4802", "6248023D9E"))
         assertEquals("31.45 °C", ObdDecoders.decode("hv_temp_avg", "491B", "62491B1FD1"))
         assertEquals("32.30 °C · sensör 17", ObdDecoders.decode("hv_temp_max", "4945", "624945112026"))
         assertEquals("100.00 %", ObdDecoders.decode("hv_soh", "496D", "62496D00002710"))
         assertEquals("2368 km", ObdDecoders.decode("odometer", "DD01", "62DD01000940"))
-        assertEquals("100 %", ObdDecoders.decode("soc_display", "D901", "62D90164"))
-        assertEquals("100 %", ObdDecoders.decode("soc_display", "D901", "62D90100000064"))
+    }
+
+    @Test fun decodesNewCarScannerMatchedSignals() {
+        assertEquals("91.120025 %", ObdDecoders.decode("cell_min_soc", "487A", "62487A056E6199"))
+        assertEquals("26.0 °C", ObdDecoders.decode("hv_inlet_coolant_temp", "4804", "6248044C"))
+        assertEquals("14.75 V", ObdDecoders.decode("battery_12v", "DD02", "62DD023B"))
+        assertEquals("24629.979 W", ObdDecoders.decode("discharge_power_limit", "489E", "62489E0177D2DB"))
+        assertEquals("37.523 V", ObdDecoders.decode("ecu_supply_voltage", "EE02", "62EE029293"))
+        assertEquals("446.21 V", ObdDecoders.decode("cell_voltage_sum", "497C", "62497CAE4D"))
+        assertEquals("4.184 V · hücre 63", ObdDecoders.decode("cell_max_voltage", "4907", "6249073F1058"))
+        assertEquals("4.168 V · hücre 85", ObdDecoders.decode("cell_min_voltage", "4908", "624908551048"))
+        assertEquals("100.00 %", ObdDecoders.decode("hv_soh_secondary", "489A", "62489A2710"))
+        assertEquals("445.93 V", ObdDecoders.decode("igm_fuse_voltage", "4809", "624809AE31"))
+        assertEquals("26.50 °C", ObdDecoders.decode("dc_connector_temp", "EE06", "62EE061DE2"))
+        assertEquals("24.7 °C", ObdDecoders.decode("ac_temp", "4A28", "624A2800000287"))
+        assertEquals("629", ObdDecoders.decode("ac_pressure", "4A29", "624A2900000275"))
+        assertEquals("33.1 °C", ObdDecoders.decode("powertrain_coolant_temp_vcu", "4A34", "624A34000002DB"))
+        assertEquals("35.5 %", ObdDecoders.decode("cooling_request", "413A", "62413A00000163"))
+        assertEquals("10.0 %", ObdDecoders.decode("coolant_pump_chamber_request", "D901", "62D90100000064"))
+        assertEquals("0 %", ObdDecoders.decode("cooling_valve_actual", "E34A", "62E34A00"))
+        assertEquals("0.0 rpm", ObdDecoders.decode("erad_wheel_speed", "E312", "62E3124000"))
+        assertEquals("0.0 A", ObdDecoders.decode("iem_hv_current", "E301", "62E3011FFC"))
+        assertEquals("35.0 °C", ObdDecoders.decode("erad_motor_temp", "E306", "62E30655"))
+        assertEquals("31.0 °C", ObdDecoders.decode("powertrain_coolant_temp_iem", "EE9A", "62EE9A47"))
     }
 
     @Test fun matchesCarScannerDriveMotorSignals() {
@@ -45,7 +69,7 @@ class ObdDecodersTest {
     }
 
     @Test fun derivesSignedPower() {
-        val power = ObdDecoders.derivedPowerKw("624801A028", "6248023D9E")
+        val power = ObdDecoders.derivedPowerKw("624803A028", "6248023D9E")
         assertTrue(requireNotNull(power) < 0f)
     }
 

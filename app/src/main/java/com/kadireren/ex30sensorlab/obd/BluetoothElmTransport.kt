@@ -28,7 +28,13 @@ class BluetoothElmTransport(context: Context) : ElmTransport {
         if (bluetoothAdapter.isDiscovering) bluetoothAdapter.cancelDiscovery()
 
         repeat(CONNECT_ATTEMPTS) { attempt ->
-            val candidate = connectSocket(device, secure = true) ?: connectSocket(device, secure = false)
+            // Vlink SPP does not need authenticated RFCOMM. Trying the secure socket first
+            // makes some AAOS builds show a pairing confirmation on every reconnect.
+            val candidate = connectSocket(device, secure = false) ?: if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                connectSocket(device, secure = true)
+            } else {
+                null
+            }
             if (candidate?.isConnected == true) {
                 socket = candidate
                 return

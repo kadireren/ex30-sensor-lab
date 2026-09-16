@@ -3,8 +3,11 @@ package com.kadireren.ex30sensorlab.obd
 import com.kadireren.ex30sensorlab.model.EcuContext
 import java.io.IOException
 
+enum class ElmConnectionEvent { RECONNECTING, RECONNECTED }
+
 class ElmProtocol(
     private val transport: ElmTransport,
+    private val connectionEvent: (ElmConnectionEvent) -> Unit = {},
     private val trace: (command: String, response: String) -> Unit = { _, _ -> },
 ) {
     private var initialized = false
@@ -39,15 +42,29 @@ class ElmProtocol(
 
     @Synchronized
     fun query(ecu: EcuContext?, command: String, timeoutMs: Long = 2_500L): String {
-        check(initialized && transport.isConnected) { "ELM327 hazır değil" }
         val safe = ElmCommandPolicy.requireAllowed(command)
-        return try {
-            if (ecu != null) switchEcu(ecu)
-            send(safe, timeoutMs)
-        } catch (error: IOException) {
-            reconnect(ecu)
-            send(safe, timeoutMs)
+        var lastError: IOException? = null
+        repeat(QUERY_ATTEMPTS) { attempt ->
+            try {
+                if (!initialized || !transport.isConnected) {
+                    connectionEvent(ElmConnectionEvent.RECONNECTING)
+                    reconnect(ecu)
+                } else if (ecu != null) {
+                    switchEcu(ecu)
+                }
+                return send(safe, timeoutMs)
+            } catch (error: IOException) {
+                lastError = error
+                transport.close()
+                initialized = false
+                currentEcu = null
+                currentProtocol = null
+                if (connectedDeviceId == null || attempt == QUERY_ATTEMPTS - 1) return@repeat
+                connectionEvent(ElmConnectionEvent.RECONNECTING)
+                Thread.sleep(RETRY_DELAYS_MS[attempt])
+            }
         }
+        throw IOException("OBD bağlantısı ${QUERY_ATTEMPTS} denemede geri kurulamadı", lastError)
     }
 
     fun switchEcu(ecu: EcuContext) {
@@ -66,6 +83,7 @@ class ElmProtocol(
         currentProtocol = ecu.protocol
     }
 
+    @Synchronized
     fun disconnect() {
         connectedDeviceId = null
         transport.close()
@@ -101,6 +119,7 @@ class ElmProtocol(
         transport.connect(deviceId)
         initialize()
         if (ecu != null) switchEcu(ecu)
+        connectionEvent(ElmConnectionEvent.RECONNECTED)
     }
 
     private fun send(command: String, timeoutMs: Long = 2_500L): String = try {
@@ -113,6 +132,8 @@ class ElmProtocol(
     companion object {
         val INIT_COMMANDS = listOf("ATZ", "ATE0", "ATE0", "ATL0", "ATS0", "ATH1", "ATM0", "ATAT1")
         val BECM_LINK_TESTS = listOf("224801", "22491B")
+        private const val QUERY_ATTEMPTS = 3
+        private val RETRY_DELAYS_MS = longArrayOf(500L, 1_500L)
 
         fun buildSwitchCommands(currentProtocol: Int?, ecu: EcuContext): List<String> {
             val commands = mutableListOf<String>()

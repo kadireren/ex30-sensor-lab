@@ -13,6 +13,9 @@ data class VhalDefinition(
 )
 
 object VhalCatalog {
+    const val SOC_PERCENT_KEY = "BATTERY_SOC_PERCENT"
+    const val INSTANT_CONSUMPTION_KEY = "INSTANT_CONSUMPTION"
+
     val entries = listOf(
         v(VehiclePropertyIds.CURRENT_GEAR, "CURRENT_GEAR", Car.PERMISSION_POWERTRAIN, "enum", 0f, "Mevcut vites"),
         v(VehiclePropertyIds.GEAR_SELECTION, "GEAR_SELECTION", Car.PERMISSION_POWERTRAIN, "enum", 0f, "Vites seçimi"),
@@ -28,6 +31,11 @@ object VhalCatalog {
         v(VehiclePropertyIds.PERF_VEHICLE_SPEED_DISPLAY, "PERF_VEHICLE_SPEED_DISPLAY", Car.PERMISSION_SPEED, "m/s", 10f, "Gösterge hızı"),
         v(VehiclePropertyIds.EV_BATTERY_INSTANTANEOUS_CHARGE_RATE, "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE", Car.PERMISSION_ENERGY, "mW", 30f, "Batarya gücü"),
         v(VehiclePropertyIds.WHEEL_TICK, "WHEEL_TICK", Car.PERMISSION_SPEED, "ticks[]", 10f, "Tekerlek tick"),
+    )
+
+    val displayChoices: List<Pair<String, String>> = entries.map { it.name to it.label } + listOf(
+        SOC_PERCENT_KEY to "Gösterge batarya yüzdesi",
+        INSTANT_CONSUMPTION_KEY to "Anlık tüketim",
     )
 
     private fun v(id: Int, name: String, permission: String, unit: String, hz: Float, label: String) =

@@ -1,6 +1,41 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-15
+Son güncelleme: 2026-09-16
+
+## 2026-09-16 bağlantı, doğru SOC/tüketim ve sensör seçimi
+
+- Yeni tam kayıt `captures/hci/btsnoop-full-20260916-184801.log` (34.848/34.848
+  eksiksiz paket) ile aynı oturumun `carscanner-drive-20260916-184903.brc`
+  dosyası eşleştirildi. BRC'de 47 sensör ve 2.424 sayısal örnek var; ham
+  dosyalar gitignore altında kalmalı.
+- Önceki SOC yorumu düzeltildi: BECM `4801`, ham SOC'yi `u16/500` ile verir;
+  gösterge SOC formülü bire bir `hamSOC × 1,0625 − 3,125` çıktı. BECM `4803`
+  gerçek paket voltajıdır (`u16/100`). `D901` SOC değil, pompa haznesi istenen
+  hızıdır (`u32/10`). OBD ekranı artık VHAL köprüsü kullanmaz.
+- HCI+BRC ile değer/formülü eşleşen hücre SOC/voltajları, güç limitleri, termal
+  yönetim, klima ve ERAD sensörleri OBD seçeneklerine eklendi. Tek örnekli
+  `EE13`, bozuk hücre-delta kaydı ve aynı cevabı çoğaltan sensörler eklenmedi.
+- OBD görünürlük seçimi aynı zamanda polling kapsamını belirler. `HV güç` için
+  `4803+4802`, gösterge SOC için `4801` bağımlılıkları otomatik sorgulanır.
+  Bağlantı yükünü korumak için yeni geniş sensör grubu varsayılan olarak kapalı,
+  eski temel OBD kartları açık gelir.
+- Dahili test sürümü `1.0.16` / `versionCode 20`.
+
+- Sabah sürüşünde bir Bluetooth/OBD kopması görüldü. Vlink bağlantısı artık
+  eşleşmemiş cihazda secure RFCOMM denemediği için her bağlantıda sistem
+  eşleştirme onayı istememeli. Kayıtlı MAC'e doğrudan bağlanır; kopmada üç
+  kademeli sorgu/bağlantı denemesiyle ELM init ve ECU bağlamını geri yükler.
+  Tam deneme bütçesi tükenirse sonraki polling turunda yeniden dener; hata
+  sırasında diğer bütün sensörleri peş peşe sorgulamaz.
+- Kullanıcı VHAL güç yönünün doğru olduğunu teyit etti. Ayrı bir “instant
+  consumption” VHAL property yoktur; dashboard gibi
+  `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE / hız × 100` ile türetilmiş
+  `kWh/100 km` kartı eklendi.
+- İlk kayıtta yanlış SOC sanılan `D901`, yeni BRC eşlemesiyle soğutma pompası
+  isteği olarak kesinleşti; doğru OBD SOC ve gösterge formülü yukarıdadır.
+- Ana ekrandaki Sensör Keşfi kaldırıldı. Yerine VHAL ve OBD için ayrı kalıcı
+  görünürlük seçimleri olan `Ekran Sensörleri` bölümü eklendi. Seçimler AAOS,
+  OBD ve Sürüş Görünümü listelerine uygulanır.
 
 ## 2026-09-15 Sensor Lab canlı motor doğrulaması ve OBD sadeleştirmesi
 
@@ -88,11 +123,13 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
   ECU-D ve ECU-E gaz/RPM adayları fazları izlemediği için katalogdan çıkarıldı.
 - `F40D` araç hızı ve `2B06–2B09` dört teker hızı fiziksel hareketle
   doğrulandı. BECM `4802`, duruşta `1,8–1,9 A`, kısa harekette `19,9 A` tepe
-  verdi; yük proxy'si `4801 × 4802` türetilmiş kW olarak kalır.
+  verdi; bu tarihte `4801 × 4802` sanılmıştı. 2026-09-16 HCI+BRC eşlemesi
+  doğru güç çiftinin `4803 × 4802` olduğunu gösterdi.
 - BECM `489E` hareketle güçlü değişti ancak anlamı/ölçeği bilinmiyor; yalnız
   `CANDIDATE`, çalışan sensör olarak sunulmamalı.
-- VCFRONT `D901` canlı cevabı `00000064` olduğundan SOC decoder'ı dört baytlı
-  veriyi okuyacak şekilde düzeltildi ve regresyon testi eklendi.
+- VCFRONT `D901` canlı cevabı `00000064` olarak okunmuştu; o aşamada SOC kabul
+  edildi. 2026-09-16 HCI+BRC eşlemesi bunun pompa isteği olduğunu kanıtladı;
+  doğru adı ve `u32/10` formülüyle yeniden kataloğa eklendi.
 - Bu değişikliklerle ve throttle keşif aracıyla Python testleri `7/7`, Android
   unit testleri `30/30` geçti; `lintDebug` ve `assembleDebug` başarılı oldu.
   Güncel debug APK ve lint raporu 2026-09-13 14:32'de üretildi.
@@ -134,7 +171,8 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
   LIVE; kalıcı `Download/EX30SensorLab/discovered_sensors.json`.
 - **VHAL katalog:** AAOS/emülatörde desteklenmeyen üç property kaldırıldı:
   `HV_BATTERY_VOLTAGE`, `HV_BATTERY_CURRENT`, `ABS_VEHICLE_SPEED`. `VhalCatalog`
-  artık **14** sensör (HV voltaj/akım OBD `4801`/`4802` üzerinden okunmaya devam).
+  artık **14** sensör (HV voltaj/akım OBD `4803`/`4802` üzerinden okunur;
+  `4801` ise gerçek BECM SOC'dir).
 - **Ana menü:** «OBD bağlantısını kes» ve «Uygulamadan çıkış» (`finishAffinity`)
   eklendi; OBD kesme/bağlanma ana menüden yönetilir.
 - **OBD Verileri ekranı:** üst kontrol satırında yalnız «Download'a aktar» kaldı;
@@ -201,16 +239,18 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 
 ## Uygulanan yapı
 
-- `vhal/`: 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil); destek/izin,
-  ham ve dönüştürülmüş değer, örnek yaşı/gecikme, hedef ve gerçek Hz; güç yönü
-  kullanıcı kalibrasyonu.
-- `obd/`: Classic Bluetooth SPP ile eşleştirilmiş `Android-Vlink` bağlantısı,
-  secure bağlantı ve insecure fallback, tek komut kuyruğu, `>` prompt okuma,
-  timeout sonrası tek kontrollü yeniden bağlantı ve ECU bağlamını geri yükleme.
+- `vhal/`: 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil); doğru
+  enerji/kapasite SOC'si ve dashboard formüllü anlık tüketim; destek/izin,
+  örnek yaşı/gecikme, hedef ve gerçek Hz.
+- `obd/`: Classic Bluetooth SPP ile `Android-Vlink`; eşleştirmesiz insecure
+  RFCOMM önceliği, kayıtlı MAC, tek komut kuyruğu, `>` prompt okuma, kopma
+  sonrası çoklu yeniden bağlantı ve ELM/ECU bağlamı geri yükleme.
 - `obd/ObdCatalog.kt`: doğrulanmış BECM, VCFRONT, ECU-E, ECU-F ve adaptör değerleri;
   gaz PWM, ERAD devir/tork canlı doğrulandı; çözülemeyen fren basıncı kaldırıldı; odak modu var.
-- `scanner/`: aday PID izleme, kısa ECU `F190` yoklaması, seçilen ECU'da en
-  fazla 256 DID taraması, yaklaşık 3 sorgu/sn, canlı ilerleme ve NRC etiketi.
+- Keşif/scanner altyapısı tarihsel araçlar için kodda korunur; kullanıcı
+  arayüzündeki keşif bölümü kaldırılmıştır.
+- `ui/SensorVisibilityPreferences.kt`: VHAL ve OBD görünürlük seçimlerini
+  kalıcı saklar; AAOS, OBD ve Sürüş Görünümü aynı seçimleri uygular.
 - `scanner/ScanProfileParser.kt`: HCI profilini izin listesinden geçirir;
   oynatma kullanıcı eylemi olmadan başlamaz ve önce inceleme penceresi gösterir.
 - `logging/`: CSV ve JSONL oturum kaydı, ELM başlatma/ECU geçişleri dahil ham
@@ -280,18 +320,16 @@ listesi boştu.
 
 ## Sıradaki işler
 
-1. Emülatörü yeniden başlat; doğru display ID ile üç ana menü kartını ve ekran
-   geçişlerini görsel olarak doğrula.
+1. Emülatörde yeni Ekran Sensörleri bölümünü, iki sütunlu seçimleri ve Sürüş
+   Görünümü filtrelerini görsel olarak doğrula.
 2. Emülatörde `connectedDebugAndroidTest` çalıştır. Emülatör gerçek Volvo VHAL
    veya fiziksel Bluetooth SPP davranışını kanıtlamaz.
-3. EX30 üzerinde `Android-Vlink` ile `ATI`, BECM `4801/491B`, hız, SOC,
-   kilometre ve sıcaklık okumalarını Car Scanner/araç göstergesiyle
-   karşılaştır.
-4. Güç işaretini hızlanma ve lift-off regen ile kalibre et.
-5. Scanner'ın hareket başladığında durduğunu ve JSONL içinde hiçbir yazma
-   komutu bulunmadığını doğrula.
-6. Araçta en az 30 dakika açık ekran bağlantı/donma/komut çakışması testi yap.
-7. Ayrı Android telefondan alınan HCI kaydı geldiğinde
+3. EX30 üzerinde yeni eşleştirmesiz bağlantının sistem onayı istemediğini ve
+   kasıtlı adaptör kapat/aç sonrasında otomatik geri geldiğini doğrula.
+4. Doğru VHAL SOC köprüsünü araç ekranı yüzdesiyle; anlık tüketimi dashboard
+   uygulamasıyla karşılaştır.
+5. Araçta en az 30 dakika açık ekran bağlantı/donma/komut çakışması testi yap.
+6. Ayrı Android telefondan alınan HCI kaydı gerektiğinde
    `docs/HCI_CAPTURE_TR.md` akışını kullan; ham bugreport içinde VIN olabileceği
    için dosyayı herkese açık paylaşma.
 

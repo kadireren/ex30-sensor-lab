@@ -1,6 +1,6 @@
 # EX30 Keşif Hafızası — Sensor Lab + Dashboard + Driver Display
 
-Son güncelleme: 2026-09-08
+Son güncelleme: 2026-09-16
 
 Bu dosya, üç ilgili repodaki **kanıtlanmış**, **denenen** ve **başarısız** bulguların
 tek referans özetidir. Sanal motor sesi / gaz / RPM aramasında önce buraya bak.
@@ -137,14 +137,54 @@ Kaynak: `ex30-companion-runner/docs/pid_map.md`, `obd2/pids.py`,
 
 | ECU | DID | Sinyal | Not |
 |-----|-----|--------|-----|
-| BECM `D01635` | `4801` | HV voltaj | |
+| BECM `D01635` | `4801` | Ham SOC (`u16/500`); gösterge SOC = `SOC×1,0625−3,125` | 2026-09-16 HCI+BRC |
+| BECM | `4803` | HV paket voltajı (`u16/100`) | 2026-09-16 HCI+BRC |
 | BECM | `4802` | HV akım | Tam gaz ~+213 A, regen ~−61 A |
 | BECM | `491B`, `4945`, `496D`, `DD01` | Sıcaklık, SOH, km | |
 | ECU-E `D01701` | `FD00`–`FD03` | **Fren basıncı (bar)** | Snoop'ta pedal sanıldı; kalibrasyon **fren** |
 | ECU-E | `F40D` | Hız km/h | |
 | ECU-E | `2B06`–`2B09` | Teker hızı | |
-| VCFRONT `D01601` | `D901` | Gösterge SOC | |
+| VCFRONT `D01601` | `D901` | Pompa haznesi istenen hızı (`u32/10`); SOC değildir | 2026-09-16 HCI+BRC |
 | 11-bit `7E3` | `DD01` | Km | |
+
+### 2026-09-16 tam HCI + BRC geniş sensör eşlemesi
+
+Aynı oturuma ait `btsnoop-full-20260916-184801.log` (34.848 eksiksiz paket,
+kırpılmış paket yok) ile `carscanner-drive-20260916-184903.brc` (47 sensör,
+2.424 sayısal örnek) zaman, örnek sayısı ve ham değer üzerinden eşleştirildi.
+Ham dosyalar `captures/hci/` altında gitignore kapsamındadır.
+
+| ECU | DID | Car Scanner / Sensor Lab anlamı | Decoder |
+|-----|-----|--------------------------------|---------|
+| BECM | `4801` | BECM ham SOC | `u16/500` |
+| BECM | `4803` | HV paket voltajı | `u16/100` V |
+| BECM | `487A` | Minimum hücre SOC | `u32/1.000.000` % |
+| BECM | `4804` | Batarya giriş soğutma sıcaklığı | `u8−50` °C |
+| BECM | `DD02` | 12 V batarya voltajı | `u8/4` V |
+| BECM | `489C` / `489E` | Şarj / deşarj güç limiti | `u32/1000` W |
+| BECM | `EE02` | ECU besleme voltajı | `u16/1000` V |
+| BECM | `497C` | Hücre voltajları toplamı | `u16/100` V |
+| BECM | `4907` / `4908` | Maksimum / minimum hücre voltajı | `ilk bayt=hücre`, `u16/1000` V |
+| BECM | `489A` | İkinci SOH kanalı | `u16/100` % |
+| BECM | `4809` | IGM sigorta voltajı | `u16/100` V |
+| BECM | `EE06` | DC şarj soketi sıcaklığı | `u16/100−50` °C |
+| VCFRONT | `4A28` | Klima sıcaklığı | `u32/10−40` °C |
+| VCFRONT | `4A29` | Klima basıncı | `u32` |
+| VCFRONT | `4A30`–`4A34` | Chiller, kondenser, evaporatör, kompresör ve güç aktarma soğutma sıcaklıkları | `u32/10−40` °C |
+| VCFRONT | `413A` | Soğutma fanı/pompa isteği | `u32/10` % |
+| VCFRONT | `D901` | Pompa haznesi istenen hızı | `u32/10` % |
+| VCFRONT | `E34A` / `E349` | HV soğutma valfi gerçek / istenen konumu | `u8` % |
+| ECU-F | `E312` | ERAD teker/motor çıkış hızı | `(u16−16384)/10` rpm |
+| ECU-F | `E301` | IEM HV sistem akımı | `(u16−8188)/10` A |
+| ECU-F | `E306` | ERAD motor sıcaklığı | `u8−50` °C |
+| ECU-F | `EE9A` | Elektrikli aktarma soğutma sıcaklığı | `u8−40` °C |
+
+Gösterge SOC, 131/131 BRC örneğinde ham SOC ile tam doğrusal eşleşti:
+`displaySOC = (4801/500) × 1,0625 − 3,125`. `HV güç` artık doğru voltaj kanalı
+olan `4803 × 4802 / 1000` ile hesaplanır. Tek örnekli CDD `EE13`, bozuk/anormal
+hücre-delta serisi ve aynı ham cevabı iki adla çoğaltan kanallar uygulama
+kataloğuna alınmadı. Yeni geniş sensör grubu varsayılan kapalıdır; kullanıcı
+OBD seçim ekranından açtığında polling kapsamına girer.
 
 ### Canlı kalibrasyondan sonra kalan aday
 
@@ -165,33 +205,34 @@ listesinden çıkarıldı.
 throttle_pct = min(power_kw / 100, 1.0)   # POWER_BAR_MAX_KW = 100
 ```
 
-Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4801×4802`.
+Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4803×4802`.
 
-**Motor RPM:** doğrulanmış OBD/AAOS sinyali yok; companion ses/gauge mantığı da yok.
+**Bu referans projenin eski sonucu:** ayrı motor RPM kanalı kullanılmıyordu.
+Sensor Lab'de sonradan ECU-F `E303` ERAD motor devri doğrulandı.
 
 ---
 
 ## 4. EX30 Sensor Lab — ne başardık
 
-### Uygulama (sürüm ~1.0.10, commit `fdcbe3e`)
+### Uygulama (güncel sürüm 1.0.16 / versionCode 20)
 
 | Alan | Durum |
 |------|--------|
-| VHAL okuma | Dashboard kanıtlı 14 tanım (`VhalCatalog`; HV V/ A ve ABS hız VHAL'den kaldırıldı) |
-| OBD bağlantı | IOS-Vlink / `Android-Vlink`, ELM init, BECM link testi |
-| OBD polling | ECU batch, türetilmiş HV güç; çözülemeyen fren basıncı güncel katalogdan çıkarıldı |
-| Sensör Keşfi UI | Adım adım: VHAL probe, OBD keşif, motor DID taraması, HCI rehberi |
+| VHAL okuma | Dashboard kanıtlı 14 tanım + türetilmiş doğru SOC ve anlık tüketim |
+| OBD bağlantı | `Android-Vlink`, eşleştirmesiz RFCOMM, kalıcı yeniden bağlanma, ELM/ECU bağlamı geri yükleme |
+| OBD polling | Seçili sensörler, ECU batch, `4803×4802` türetilmiş HV güç, gerçek `4801` OBD SOC |
+| Ekran Sensörleri UI | VHAL/OBD için ayrı kalıcı görünürlük seçimi; eski keşif bölümü kullanıcı arayüzünden kaldırıldı |
 | `VhalProbe` | Gaz/RPM/güç/hız tek dokunuş testi + özet metin |
 | Scanner | Aday izleme, ECU yoklama, 256 DID sweep, profil replay |
 | Log / export | CSV/JSONL; Download/EX30SensorLab (user 10 yolları, 1.0.10) |
 | Python | `extract_hci_profile.py` (+ unittest); `extract_snooz_profile.py` (Car Scanner binary) |
-| Test | 21+ Android unit test, lint, assembleDebug |
+| Test | Android unit test, lint, assembleDebug; Python araç testleri |
 
 ### Araçta kanıtlanan OBD (ekran görüntüleri, ~Eylül 2026)
 
 | Sensör | Sonuç |
 |--------|--------|
-| `224801` BECM HV voltaj | **LIVE** (~244 V — düşük SOC normal) |
+| `224801` tarihsel HV voltaj adayı | **Yeniden sınıflandı:** BECM ham SOC (`u16/500`) |
 | `22F40D` ECU-E hız | **LIVE** (park 0 km/h) |
 | `22FD00…` fren ortalaması | **ERROR** (decode; sonraki fallback denemeleri de kullanımını doğrulamadı, güncel OBD ekranından çıkarıldı) |
 | Scanner aday izleme | Çalışıyor; çoğu aday NRC veya sabit |
@@ -207,6 +248,10 @@ Güç kaynağı: AAOS `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (30 Hz) veya OBD `4
 - VCFRONT `D901` gerçek cevabı dört baytlı `00000064` oldu. SOC decoder'ı tüm
   veri alanını okuyacak şekilde düzeltildi; eski ilk-bayt davranışı `%0`
   gösterebiliyordu.
+- 2026-09-16 HCI+BRC düzeltmesi: `D901`, Car Scanner'da pompa haznesi istenen
+  hızıdır ve `00000064 / 10 = 10` verir. Gerçek BECM SOC `4801`; araç ekranı
+  SOC değeri `u16/500 × 1,0625 − 3,125` formülüyle bire bir eşleşti. Gerçek
+  paket voltajı `4803` olarak düzeltildi.
 
 Tam 256-DID taramalar:
 
@@ -226,7 +271,7 @@ Hareket kalibrasyonu:
   adayı. `2B20` durum geçişleri gösterdi. İkisi de pedal/RPM değil.
 - BECM `4802`, ilk duruşta `1,8–1,9 A`, harekette `19,9 A` tepe ve son
   duruşta yeniden `1,8–1,9 A` verdi. Gaz/yük için doğrulanmış en iyi OBD proxy
-  `4801 × 4802` türetilmiş kW olmaya devam ediyor.
+  `4803 × 4802` türetilmiş kW olarak kullanılıyor.
 - Bu 2026-09-13 Mac DID taramalarında doğrudan gaz pedalı yüzdesi ve gerçek
   motor RPM bulunmadı; 2026-09-15 Car Scanner kaydı için aşağıya bak.
 
@@ -365,7 +410,7 @@ tabanı gerçek pedal yüzde 0/7 yorumuyla karıştırılmamalı.
 Üç repoda ortak çalışan yol:
 
 1. **Gaz / yük proxy:** `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE` (VHAL) veya OBD
-   BECM `4801`+`4802` → kW
+   BECM `4803`+`4802` → kW
 2. **Devir hissi:** `SoundControlModel` benzeri **sentetik `virtualRpm`**
    (hız + güç + intent); veya `WHEEL_TICK` / hız fizik modeli
 3. **Gerçek OBD motor sinyalleri:** yukarıdaki üç DID; araçta Sensor Lab canlı
@@ -413,7 +458,8 @@ gh api repos/kadireren/ex-30-driver-display-private/contents/ex30-companion-runn
 
 ## 8. Açık işler (bilinçli boşluklar)
 
-- [ ] Araçta VHAL **anlık güç** CANLI mı, işaret yönü doğru mu (Sensor Lab AAOS ekranı)
+- [x] Araçta VHAL anlık güç yönü kullanıcı tarafından doğru olarak teyit edildi;
+  anlık tüketim aynı güç ve gösterge hızından türetilir.
 - [x] OBD `4802` hareket/yük tepkisi (1,8–1,9 A taban, 19,9 A kısa tepe)
 - [x] Tam **btsnoop** HCI dosyası `/data/log/bt/` altından alındı ve ECU'lu profil çıkarıldı
 - [x] 2026-09-15 Car Scanner `.brc` sürüş kaydı ve kırpılmış BLE HCI özeti

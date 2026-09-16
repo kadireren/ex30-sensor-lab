@@ -55,6 +55,23 @@ class ElmProtocolTest {
         assertEquals(2, transport.commands.count { it == "224801" })
     }
 
+    @Test fun keepsRecoveringAfterOneWholeQueryExhaustsItsRetries() {
+        val events = mutableListOf<ElmConnectionEvent>()
+        val transport = FakeTransport(ioErrorCommand = "224801", ioFailuresBeforeSuccess = 3)
+        val protocol = ElmProtocol(transport, connectionEvent = { events += it })
+        protocol.connect(verifyLink = false)
+
+        try {
+            protocol.query(EcuContexts.BECM, "224801")
+            org.junit.Assert.fail("İlk sorgunun yeniden bağlanma bütçesini tüketmesi bekleniyordu")
+        } catch (_: IOException) {
+        }
+
+        assertEquals("624801A73A", protocol.query(EcuContexts.BECM, "224801"))
+        org.junit.Assert.assertTrue(events.contains(ElmConnectionEvent.RECONNECTING))
+        org.junit.Assert.assertTrue(events.contains(ElmConnectionEvent.RECONNECTED))
+    }
+
     @Test fun tracesCommandsAndRedactsAtLoggerBoundary() {
         val transport = FakeTransport()
         val traces = mutableListOf<Pair<String, String>>()
@@ -112,11 +129,12 @@ class ElmProtocolTest {
     private class FakeTransport(
         private val timeoutCommand: String? = null,
         private val ioErrorCommand: String? = null,
+        private val ioFailuresBeforeSuccess: Int = if (ioErrorCommand == null) 0 else 1,
     ) : ElmTransport {
         val commands = mutableListOf<String>()
         var connectCount = 0
         private var timedOut = false
-        private var ioFailed = false
+        private var ioFailureCount = 0
         override var isConnected = false
         override fun connect(deviceIdentifier: String) { isConnected = true; connectCount++ }
         override fun send(command: String, timeoutMs: Long): String {
@@ -125,8 +143,8 @@ class ElmProtocolTest {
                 timedOut = true
                 throw SocketTimeoutException("test timeout")
             }
-            if (command == ioErrorCommand && !ioFailed) {
-                ioFailed = true
+            if (command == ioErrorCommand && ioFailureCount < ioFailuresBeforeSuccess) {
+                ioFailureCount++
                 isConnected = false
                 throw IOException("test read failed")
             }

@@ -14,7 +14,10 @@ import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 
-class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler {
+class ObdPollingController(
+    private val protocol: ElmProtocol,
+    enabledKeys: Set<String>? = null,
+) : PollingScheduler {
     private data class TimedRaw(val raw: String, val timestampMs: Long)
 
     private val executor = Executors.newSingleThreadExecutor()
@@ -25,6 +28,7 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
     private val timestamps = mutableMapOf<String, ArrayDeque<Long>>()
     private val rawByKey = mutableMapOf<String, TimedRaw>()
     @Volatile private var focusKey: String? = null
+    @Volatile private var enabledKeys: Set<String>? = enabledKeys
     private var odometerFailures = 0
     private var odometerFallback = false
 
@@ -46,13 +50,18 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
                     continue
                 }
                 val dueByEcu = due.groupBy { it.ecu?.name ?: "ELM327" }
-                for ((_, batch) in dueByEcu.entries.sortedBy { it.key }) {
+                var connectionHealthy = true
+                batchLoop@ for ((_, batch) in dueByEcu.entries.sortedBy { it.key }) {
                     if (!running.get() || generation.get() != runGeneration) break
                     for (definition in batch.sortedByDescending { it.targetHz }) {
                         if (!running.get() || generation.get() != runGeneration) break
-                        queryOne(definition, onSample, onState)
+                        if (!queryOne(definition, onSample, onState)) {
+                            connectionHealthy = false
+                            break@batchLoop
+                        }
                     }
                 }
+                if (!connectionHealthy) SystemClock.sleep(ERROR_RETRY_DELAY_MS)
             }
             onState("OBD okuma durdu")
         }
@@ -60,6 +69,11 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
 
     override fun focus(sensorKey: String?) {
         focusKey = sensorKey
+        focusChanged.set(true)
+    }
+
+    fun setEnabledKeys(keys: Set<String>) {
+        enabledKeys = keys
         focusChanged.set(true)
     }
 
@@ -83,7 +97,7 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         odometerFallback = false
     }
 
-    private fun queryOne(definition: ObdPidDefinition, onSample: (SensorSample) -> Unit, onState: (String) -> Unit) {
+    private fun queryOne(definition: ObdPidDefinition, onSample: (SensorSample) -> Unit, onState: (String) -> Unit): Boolean {
         val started = SystemClock.elapsedRealtime()
         var querySucceeded = false
         try {
@@ -95,16 +109,23 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
             val success = display != null
             querySucceeded = success
             recordOdometerResult(definition.key, raw, success)
-            if (success) rawByKey[definition.key] = TimedRaw(raw, SystemClock.elapsedRealtime())
-            else rawByKey.remove(definition.key)
+            if (success) {
+                rawByKey[definition.key] = TimedRaw(raw, SystemClock.elapsedRealtime())
+            } else {
+                rawByKey.remove(definition.key)
+            }
             onSample(sample(definition, raw, display ?: "Yanıt çözülemedi", started, success))
-            emitPowerIfReady(onSample, started)
+            if (success && definition.key in setOf("hv_voltage", "hv_current")) emitPowerIfReady(onSample, started)
+            if (success && definition.key == "obd_soc") emitDisplaySoc(onSample, raw, started)
         } catch (e: Exception) {
             onSample(sample(definition, "", e.message ?: "OBD hatası", started, false))
             onState(e.message ?: "OBD okuma hatası")
+            nextDue[definition.key] = SystemClock.elapsedRealtime() + ERROR_RETRY_DELAY_MS
+            return false
         }
         val delayMs = if (querySucceeded) intervalMs(definition) else ERROR_RETRY_DELAY_MS
         nextDue[definition.key] = SystemClock.elapsedRealtime() + delayMs
+        return true
     }
 
     private fun recordOdometerResult(key: String, raw: String, success: Boolean) {
@@ -121,15 +142,24 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         val focused = focusKey
         val discovered = DiscoveredSensorCatalog.confirmedDefinitions()
         if (focused != null) {
-            return (discovered + ObdCatalog.confirmed).filter { it.key == focused }
+            val focusedDependencies = when (focused) {
+                "hv_power" -> setOf("hv_voltage", "hv_current")
+                "soc_display" -> setOf("obd_soc")
+                else -> setOf(focused)
+            }
+            return (discovered + ObdCatalog.confirmed).filter { it.key in focusedDependencies }
+        }
+        val selected = enabledKeys?.toMutableSet()?.apply {
+            if ("hv_power" in this) addAll(listOf("hv_voltage", "hv_current"))
+            if ("soc_display" in this) add("obd_soc")
         }
         return discovered + ObdCatalog.confirmed.filter {
             when {
                 it.key == "odometer" -> !odometerFallback
                 it.key == "odometer_11bit" -> odometerFallback
-                else -> it.targetHz > 0f
+                else -> it.targetHz > 0f && (selected == null || it.key in selected)
             }
-        }
+        }.filter { selected == null || it.key in selected || it.key in setOf("odometer", "odometer_11bit") && "odometer" in selected }
     }
 
     private fun intervalMs(def: ObdPidDefinition): Long {
@@ -161,8 +191,14 @@ class ObdPollingController(private val protocol: ElmProtocol) : PollingScheduler
         val current = rawByKey["hv_current"] ?: return
         if (kotlin.math.abs(voltage.timestampMs - current.timestampMs) > MAX_DERIVED_SAMPLE_SKEW_MS) return
         val power = ObdDecoders.derivedPowerKw(voltage.raw, current.raw) ?: return
-        val def = ObdPidDefinition("hv_power", "HV güç (türetilmiş)", "4801×4802", "kW", EcuContexts.BECM, 2f, com.kadireren.ex30sensorlab.model.ResearchStatus.CONFIRMED)
-        onSample(sample(def, "4801 + 4802", String.format(Locale.US, "%.2f kW", power), started, true))
+        val def = ObdPidDefinition("hv_power", "HV güç (türetilmiş)", "4803×4802", "kW", EcuContexts.BECM, 2f, com.kadireren.ex30sensorlab.model.ResearchStatus.CONFIRMED)
+        onSample(sample(def, "4803 + 4802", String.format(Locale.US, "%.2f kW", power), started, true))
+    }
+
+    private fun emitDisplaySoc(onSample: (SensorSample) -> Unit, raw: String, started: Long) {
+        val soc = ObdDecoders.derivedDisplaySoc(raw) ?: return
+        val def = ObdPidDefinition("soc_display", "Gösterge batarya yüzdesi (OBD)", "4801 formülü", "%", EcuContexts.BECM, 1f, com.kadireren.ex30sensorlab.model.ResearchStatus.CONFIRMED)
+        onSample(sample(def, raw, String.format(Locale.US, "%.3f %%", soc), started, true))
     }
 
     companion object {

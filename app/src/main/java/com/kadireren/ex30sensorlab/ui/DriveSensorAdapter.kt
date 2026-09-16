@@ -28,6 +28,7 @@ class DriveSensorAdapter(
     private val context: Context,
     var sourceFilter: SensorSource,
     var layout: DriveLayout,
+    private val visibleKeys: ((SensorSource) -> Set<String>)? = null,
     var pageSize: Int = DEFAULT_PAGE_SIZE,
 ) : BaseAdapter() {
     private val samples = linkedMapOf<String, SensorSample>()
@@ -59,6 +60,7 @@ class DriveSensorAdapter(
 
     private fun orderedSamples(): List<SensorSample> = samples.values
         .filter { it.definition.source == sourceFilter }
+        .filter { sample -> visibleKeys?.invoke(sourceFilter)?.let { sample.definition.key in it } ?: true }
         .filter { it.displayValue != "—" && it.status !in setOf(SampleStatus.WAITING, SampleStatus.UNSUPPORTED, SampleStatus.PERMISSION_DENIED) }
         .sortedWith(compareBy({ DriveSensorOrder.priority(it.definition.key, sourceFilter) }, { it.definition.name }))
 
@@ -393,8 +395,9 @@ class DriveSensorAdapter(
 object DriveSensorOrder {
     private val vhalPriorities = mapOf(
         "PERF_VEHICLE_SPEED_DISPLAY" to 1, "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE" to 2,
-        "EV_BATTERY_LEVEL" to 3, "RANGE_REMAINING" to 4, "ENV_OUTSIDE_TEMPERATURE" to 5,
-        "GEAR_SELECTION" to 6, "CURRENT_GEAR" to 7, "PERF_VEHICLE_SPEED" to 10,
+        "INSTANT_CONSUMPTION" to 3, "BATTERY_SOC_PERCENT" to 4, "EV_BATTERY_LEVEL" to 5,
+        "RANGE_REMAINING" to 6, "ENV_OUTSIDE_TEMPERATURE" to 7,
+        "GEAR_SELECTION" to 8, "CURRENT_GEAR" to 9, "PERF_VEHICLE_SPEED" to 10,
         "PARKING_BRAKE_ON" to 12, "IGNITION_STATE" to 13, "EV_CHARGE_PORT_CONNECTED" to 14,
     )
     private val obdPriorities = mapOf(

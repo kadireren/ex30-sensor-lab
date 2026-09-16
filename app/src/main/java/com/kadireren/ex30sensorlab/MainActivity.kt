@@ -23,6 +23,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.ArrayAdapter
 import android.widget.Button
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ListView
@@ -51,6 +52,7 @@ import com.kadireren.ex30sensorlab.obd.BluetoothElmTransport
 import com.kadireren.ex30sensorlab.obd.BluetoothObdDeviceScanner
 import com.kadireren.ex30sensorlab.obd.EcuContexts
 import com.kadireren.ex30sensorlab.obd.ElmProtocol
+import com.kadireren.ex30sensorlab.obd.ElmConnectionEvent
 import com.kadireren.ex30sensorlab.obd.ObdDeviceEntry
 import com.kadireren.ex30sensorlab.obd.ObdCatalog
 import com.kadireren.ex30sensorlab.obd.ObdPollingController
@@ -60,6 +62,7 @@ import com.kadireren.ex30sensorlab.scanner.ScannerController
 import com.kadireren.ex30sensorlab.ui.DriveSensorAdapter
 import com.kadireren.ex30sensorlab.ui.DriveLayout
 import com.kadireren.ex30sensorlab.ui.SensorListAdapter
+import com.kadireren.ex30sensorlab.ui.SensorVisibilityPreferences
 import com.kadireren.ex30sensorlab.vhal.AndroidVhalReader
 import com.kadireren.ex30sensorlab.vhal.SafetyState
 import com.kadireren.ex30sensorlab.vhal.VhalCatalog
@@ -70,7 +73,7 @@ import kotlin.math.abs
 
 class MainActivity : Activity() {
     private enum class ObdConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
-    private enum class Page { AAOS, OBD, SCANNER, DRIVE, MOTOR }
+    private enum class Page { AAOS, OBD, SENSORS, DRIVE, MOTOR, SCANNER }
 
     private var car: Car? = null
     private var carPropertyManager: CarPropertyManager? = null
@@ -143,9 +146,10 @@ class MainActivity : Activity() {
         when (page) {
             Page.AAOS -> showAaos()
             Page.OBD -> showObd()
-            Page.SCANNER -> showScanner()
+            Page.SENSORS -> showSensorSelection()
             Page.DRIVE -> showDriveView()
             Page.MOTOR -> showMotorSensors()
+            Page.SCANNER -> showHome()
         }
     }
 
@@ -194,7 +198,7 @@ class MainActivity : Activity() {
         super.onStart()
         startStatusRefresh()
         if (pendingLaunchAutoConnect) attemptPreferredObdAutoConnect()
-        if (currentPage != Page.SCANNER && obdConnectionState == ObdConnectionState.CONNECTED) {
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
             ensureObdPolling()
         }
     }
@@ -238,7 +242,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER
             setPadding(dp(20), dp(4), dp(20), dp(4))
         }
-        row2.addView(menuCard("3", "Sensör Keşfi", "Faz 1–2 · HCI + kalibrasyon") { showScanner() }, menuCardLayoutParams())
+        row2.addView(menuCard("3", "Ekran Sensörleri", "VHAL ve OBD görünürlüğünü seç") { showSensorSelection() }, menuCardLayoutParams())
         row2.addView(menuCard("4", "Sürüş Görünümü", "Tam ekran · yoğun sensör ızgarası") { showDriveView() }, menuCardLayoutParams(dp(16)))
         root.addView(row2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val homeActions = controlRow().apply { setPadding(dp(20), dp(5), dp(20), dp(5)) }
@@ -256,11 +260,103 @@ class MainActivity : Activity() {
         })
         homeActions.addView(homeActionButton("Uygulamadan çık", color(R.color.lab_error), color(R.color.lab_error_surface), endMargin = 0) { exitApp() })
         root.addView(homeActions)
-        root.addView(label("● Scanner güvenlik kapıları etkin   ·   v${appVersionName()}", 13f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        root.addView(label("● Salt-okunur OBD   ·   Otomatik yeniden bağlantı   ·   v${appVersionName()}", 13f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(5), 0, dp(8))
         })
         setContentView(root)
         if (obdConnectionState == ObdConnectionState.CONNECTED) ensureObdPolling()
+    }
+
+    private fun showSensorSelection() {
+        stopActiveScreen()
+        currentPage = Page.SENSORS
+        driveStatusView = null
+        val root = baseScreen(
+            "Ekran Sensörleri",
+            "AAOS, OBD ve Sürüş Görünümü kartlarını ayrı ayrı seçin",
+            true,
+        )
+        val columns = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(dp(18), dp(8), dp(18), dp(12))
+        }
+        columns.addView(
+            sensorSelectionColumn("VHAL", SensorSource.VHAL, VhalCatalog.displayChoices),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginEnd = dp(10) },
+        )
+        columns.addView(
+            sensorSelectionColumn("OBD", SensorSource.OBD, ObdCatalog.displayChoices),
+            LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.MATCH_PARENT, 1f).apply { marginStart = dp(10) },
+        )
+        root.addView(columns, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+    }
+
+    private fun sensorSelectionColumn(
+        title: String,
+        source: SensorSource,
+        choices: List<Pair<String, String>>,
+    ): View {
+        val available = choices.map { it.first }.toSet()
+        val defaults = if (source == SensorSource.OBD) ObdCatalog.defaultDisplayKeys else available
+        val selected = SensorVisibilityPreferences.selected(this, source, available, defaults).toMutableSet()
+        val checkBoxes = mutableListOf<CheckBox>()
+        fun persist() {
+            SensorVisibilityPreferences.save(this, source, selected)
+            if (source == SensorSource.OBD) obdPolling?.setEnabledKeys(selected.toSet())
+        }
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            background = rounded(color(R.color.lab_surface), color(R.color.lab_border), dp(12))
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            addView(label(title, 20f, color(R.color.lab_text), Gravity.CENTER).apply {
+                setTypeface(typeface, Typeface.BOLD)
+            })
+            addView(controlRow().apply {
+                addView(homeActionButton("Tümü", color(R.color.lab_success)) {
+                    selected.clear()
+                    selected.addAll(available)
+                    checkBoxes.forEach { it.isChecked = true }
+                    persist()
+                })
+                addView(homeActionButton("Hiçbiri", color(R.color.lab_warning), endMargin = 0) {
+                    selected.clear()
+                    checkBoxes.forEach { it.isChecked = false }
+                    persist()
+                })
+            })
+            addView(ScrollView(this@MainActivity).apply {
+                addView(LinearLayout(this@MainActivity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    choices.forEach { (key, sensorLabel) ->
+                        addView(CheckBox(this@MainActivity).apply {
+                            text = sensorLabel
+                            tag = key
+                            textSize = 16f
+                            setTextColor(color(R.color.lab_text))
+                            isChecked = key in selected
+                            setPadding(dp(6), dp(4), dp(6), dp(4))
+                            setOnCheckedChangeListener { _, checked ->
+                                if (checked) selected += key else selected -= key
+                                persist()
+                            }
+                            checkBoxes += this
+                        })
+                    }
+                })
+            }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        }
+    }
+
+    private fun visibleSensorKeys(source: SensorSource): Set<String> {
+        val available = when (source) {
+            SensorSource.VHAL -> VhalCatalog.displayChoices.map { it.first }.toSet()
+            SensorSource.OBD -> ObdCatalog.displayChoices.map { it.first }.toSet()
+            SensorSource.SCANNER -> emptySet()
+        }
+        val defaults = if (source == SensorSource.OBD) ObdCatalog.defaultDisplayKeys else available
+        return SensorVisibilityPreferences.selected(this, source, available, defaults)
     }
 
     private fun showAaos() {
@@ -296,10 +392,13 @@ class MainActivity : Activity() {
             adapter.update(messageSample("Car API hazır değil", SampleStatus.ERROR))
             return
         }
+        val visibleKeys = visibleSensorKeys(SensorSource.VHAL)
         vhalReader = AndroidVhalReader(manager) { powerMultiplier() }.also { reader ->
             reader.start(onSample = { sample ->
                 logger?.append(sample)
-                runOnUiThread { adapter.update(sample) }
+                if (sample.definition.key in visibleKeys) {
+                    runOnUiThread { adapter.update(sample) }
+                }
             }, onSafety = { safetyState = it })
         }
         if (obdConnectionState == ObdConnectionState.CONNECTED) ensureObdPolling()
@@ -311,7 +410,13 @@ class MainActivity : Activity() {
         driveSource = SensorSource.VHAL
         drivePages[SensorSource.VHAL] = 0
         drivePages[SensorSource.OBD] = 0
-        val adapter = DriveSensorAdapter(this, SensorSource.VHAL, driveLayout()).also { driveAdapter = it }
+        val visibleKeys = SensorSource.entries.associateWith(::visibleSensorKeys)
+        val adapter = DriveSensorAdapter(
+            this,
+            SensorSource.VHAL,
+            driveLayout(),
+            visibleKeys = { source -> visibleKeys.getValue(source) },
+        ).also { driveAdapter = it }
         val root = baseScreen("Sürüş Görünümü", "Canlı sensör değerleri", true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status").also { driveStatusView = it }
         val sourceRow = controlRow().apply { setPadding(dp(12), dp(4), dp(12), dp(2)) }
@@ -505,10 +610,13 @@ class MainActivity : Activity() {
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         setContentView(root)
+        val visibleKeys = visibleSensorKeys(SensorSource.OBD)
         if (obdConnectionState == ObdConnectionState.CONNECTED) {
             logger?.close()
             logger = SessionLogger(this).also { it.start("obd") }
-            obdSampleSink = { adapter.update(it) }
+            obdSampleSink = {
+                if (it.definition.key in visibleKeys) adapter.update(it)
+            }
             obdStateSink = { status.text = it }
             ensureObdPolling(forceRestart = true)
         }
@@ -533,7 +641,6 @@ class MainActivity : Activity() {
         startStatusRefresh()
 
         val controls = controlRow()
-        controls.addView(actionButton("Sensör Keşfi (Faz 1–2)") { showScanner() })
         controls.addView(actionButton("Bağlan ve oku") {
             if (obdConnectionState != ObdConnectionState.CONNECTED) {
                 toast("Önce OBD adaptörüne bağlanın")
@@ -559,7 +666,6 @@ class MainActivity : Activity() {
                 status.text = motorScreenStatusText(DiscoveredSensorStore.snapshot())
             })
         }
-        controls.addView(actionButton("Keşif raporu") { exportDiscoveryArtifacts() })
         root.addView(controls)
         root.addView(label("Hedefler: gaz pedalı PWM · ERAD motor devri · ERAD tork", 16f, color(R.color.lab_text_secondary)).apply {
             setPadding(dp(18), 0, 0, dp(6))
@@ -1013,9 +1119,25 @@ class MainActivity : Activity() {
         ioExecutor.execute {
             try {
                 elmProtocol?.disconnect()
-                val protocol = ElmProtocol(BluetoothElmTransport(this@MainActivity)) { command, response ->
-                    logger?.appendProtocol(command, response)
-                }
+                val protocol = ElmProtocol(
+                    BluetoothElmTransport(this@MainActivity),
+                    trace = { command, response -> logger?.appendProtocol(command, response) },
+                    connectionEvent = { event ->
+                        runOnUiThread {
+                            when (event) {
+                                ElmConnectionEvent.RECONNECTING -> {
+                                    setObdConnectionState(ObdConnectionState.CONNECTING)
+                                    obdStateSink?.invoke("OBD bağlantısı geri kuruluyor…")
+                                }
+                                ElmConnectionEvent.RECONNECTED -> {
+                                    obdErrorMessage = null
+                                    setObdConnectionState(ObdConnectionState.CONNECTED)
+                                    obdStateSink?.invoke("OBD yeniden bağlandı · okumalar sürüyor")
+                                }
+                            }
+                        }
+                    },
+                )
                 runOnUiThread { status.text = "${entry.name} · ELM327 başlatılıyor…" }
                 val id = protocol.connect(entry.address, verifyLink = false)
                 elmProtocol = protocol
@@ -1070,7 +1192,7 @@ class MainActivity : Activity() {
             )
             return
         }
-        obdPolling = ObdPollingController(protocol).also { polling ->
+        obdPolling = ObdPollingController(protocol, visibleSensorKeys(SensorSource.OBD)).also { polling ->
             polling.start(
                 onSample = { sample ->
                     logger?.append(sample)
@@ -1206,9 +1328,7 @@ class MainActivity : Activity() {
         vhalReader = null
         obdSampleSink = null
         obdStateSink = null
-        if (currentPage == Page.SCANNER) {
-            obdPollingPausedForScanner = false
-        }
+        obdPollingPausedForScanner = false
         if (obdConnectionState != ObdConnectionState.CONNECTED) {
             obdPolling?.close()
             obdPolling = null
@@ -1939,6 +2059,6 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
         private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f
         private const val PREFERRED_DISCOVERY_TIMEOUT_MS = 10_000L
-        private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SCANNER, Page.DRIVE)
+        private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SENSORS, Page.DRIVE)
     }
 }

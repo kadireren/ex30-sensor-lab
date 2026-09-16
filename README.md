@@ -6,16 +6,30 @@ uygulaması.
 
 ## Ekranlar
 
-- **AAOS Verileri:** 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil).
-- **OBD Verileri:** EX30'da canlı doğrulanmış ECU/DID değerleri; çözülemeyen fren basıncı sorguları listeden çıkarıldı. Üstte yalnız log export.
+- **AAOS Verileri:** 14 VHAL property (`VhalCatalog`; `WHEEL_TICK` dahil) +
+  enerji/kapasiteden doğru gösterge SOC ve güç/hızdan anlık tüketim.
+- **OBD Verileri:** EX30'da canlı doğrulanmış ECU/DID değerleri. Yeni HCI+BRC
+  eşlemesine göre `4803` gerçek paket voltajı, `4801` gerçek BECM SOC'dir;
+  araç ekranı SOC değeri doğrudan bu OBD cevabından türetilir. `D901` ise
+  soğutma pompası isteği olarak doğru adıyla gösterilir. Batarya hücreleri,
+  güç limitleri, termal yönetim, klima ve ERAD sensörleri seçeneklere eklendi.
+  Üstte yalnız log export.
   Bağlantı ana menüden; ekrana girince otomatik okuma.
-- **Sensör Keşfi / Motor sensörleri:** HCI replay, kalibrasyon, EX30'da canlı doğrulanmış gaz PWM, ERAD motor devri ve tork DID
-  LIVE (Faz 1–3).
+- **Ekran Sensörleri:** VHAL ve OBD kartları ayrı ayrı açılıp kapatılır; seçimler
+  AAOS, OBD ve Sürüş Görünümü ekranlarında kalıcıdır. Seçilmeyen OBD sensörleri
+  adaptöre gereksiz sorgu göndermemek için polling dışında bırakılır. Yeni geniş
+  Car Scanner sensör grubu ilk kurulumda kapalıdır; ihtiyaç olanlar buradan açılır.
+- **Motor sensörleri:** EX30'da canlı doğrulanmış gaz PWM, ERAD motor devri ve
+  tork DID değerleri OBD listesinde yer alır.
 - **Ana menü:** OBD'ye bağlan (Android-Vlink öncelikli), Diğer cihazlar, OBD
   kes, uygulamadan çıkış.
 
-Tarayıcı yalnız `READY/ON`, hız 0 ve park freni aktifken çalışır. ECU'ya veri
-yazan UDS servisleri kabul edilmez.
+Eski keşif tarayıcısı uygulama ekranlarından kaldırılmıştır. Geçmiş salt-okunur
+keşif araçları ve kayıtları yalnız `tools/` ile `docs/` altında korunur.
+
+Vlink bağlantısı eşleştirme istemeyen RFCOMM yolunu önceliklendirir. Bağlantı
+koparsa kayıtlı MAC adresine yeniden bağlanır, ELM ayarlarını ve ECU bağlamını
+geri yükleyip okumaya devam eder.
 
 ## Derleme
 

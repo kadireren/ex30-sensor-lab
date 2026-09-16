@@ -19,6 +19,13 @@ class AndroidVhalReader(
     private var safetyListener: ((SafetyState) -> Unit)? = null
     private val timestamps = mutableMapOf<Int, ArrayDeque<Long>>()
     private var capacityWh: Float? = null
+    private var energyWh: Float? = null
+    private var displaySpeedKmh: Float? = null
+    private var perfSpeedKmh: Float? = null
+    private var powerKw: Float? = null
+    private var displaySpeedTimestampMs = 0L
+    private var perfSpeedTimestampMs = 0L
+    private var powerTimestampMs = 0L
     private var safety = SafetyState()
 
     private val callback = object : CarPropertyManager.CarPropertyEventCallback {
@@ -32,6 +39,23 @@ class AndroidVhalReader(
 
             if (def.id == VehiclePropertyIds.INFO_EV_BATTERY_CAPACITY) {
                 capacityWh = (value.value as? Number)?.toFloat()
+            }
+            when (def.id) {
+                VehiclePropertyIds.EV_BATTERY_LEVEL -> energyWh = (value.value as? Number)?.toFloat()
+                VehiclePropertyIds.PERF_VEHICLE_SPEED_DISPLAY -> {
+                    displaySpeedKmh = (value.value as? Number)?.toFloat()?.times(3.6f)
+                    displaySpeedTimestampMs = now
+                }
+                VehiclePropertyIds.PERF_VEHICLE_SPEED -> {
+                    perfSpeedKmh = (value.value as? Number)?.toFloat()?.times(3.6f)
+                    perfSpeedTimestampMs = now
+                }
+                VehiclePropertyIds.EV_BATTERY_INSTANTANEOUS_CHARGE_RATE -> {
+                    val rawKw = (value.value as? Number)?.toFloat()?.let(VhalDerivedCalculations::normalizePowerKw)
+                    val multiplier = powerMultiplier()
+                    powerKw = rawKw?.let { if (multiplier == 0) it else it * multiplier }
+                    powerTimestampMs = now
+                }
             }
             updateSafety(def.id, value.value)
 
@@ -48,6 +72,7 @@ class AndroidVhalReader(
                     detail = "0x%08X".format(Locale.US, def.id),
                 )
             )
+            emitDerivedSamples(now)
         }
 
         override fun onErrorEvent(propertyId: Int, areaId: Int) {
@@ -97,6 +122,14 @@ class AndroidVhalReader(
         } catch (_: Exception) {
         }
         timestamps.clear()
+        capacityWh = null
+        energyWh = null
+        displaySpeedKmh = null
+        perfSpeedKmh = null
+        powerKw = null
+        displaySpeedTimestampMs = 0L
+        perfSpeedTimestampMs = 0L
+        powerTimestampMs = 0L
         sampleListener = null
         safetyListener = null
     }
@@ -121,6 +154,59 @@ class AndroidVhalReader(
         unit = def.unit,
         targetHz = def.requestedHz,
     )
+
+    private fun emitDerivedSamples(now: Long) {
+        val capacity = capacityWh
+        val energy = energyWh
+        if (capacity != null && energy != null) {
+            VhalDerivedCalculations.socPercent(energy, capacity)?.let { soc ->
+                sampleListener?.invoke(
+                    SensorSample(
+                        definition = SensorDefinition(
+                            VhalCatalog.SOC_PERCENT_KEY,
+                            "Gösterge batarya yüzdesi",
+                            SensorSource.VHAL,
+                            "EV_BATTERY_LEVEL / INFO_EV_BATTERY_CAPACITY",
+                            "%",
+                            0.5f,
+                        ),
+                        rawValue = "$energy / $capacity Wh",
+                        displayValue = String.format(Locale.US, "%.1f %%", soc),
+                        monotonicTimestampMs = now,
+                        status = SampleStatus.LIVE,
+                        detail = "VHAL enerji / kapasite",
+                    ),
+                )
+            }
+        }
+
+        val (speed, speedTimestampMs) = if (displaySpeedKmh != null && now - displaySpeedTimestampMs <= 2_500L) {
+            displaySpeedKmh to displaySpeedTimestampMs
+        } else {
+            perfSpeedKmh to perfSpeedTimestampMs
+        }
+        val power = powerKw
+        if (speed != null && power != null && kotlin.math.abs(speedTimestampMs - powerTimestampMs) <= 2_500L) {
+            val consumption = VhalDerivedCalculations.instantConsumptionKwh100(power, speed)
+            sampleListener?.invoke(
+                SensorSample(
+                    definition = SensorDefinition(
+                        VhalCatalog.INSTANT_CONSUMPTION_KEY,
+                        "Anlık tüketim",
+                        SensorSource.VHAL,
+                        "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE / hız",
+                        "kWh/100 km",
+                        10f,
+                    ),
+                    rawValue = String.format(Locale.US, "%.3f kW / %.2f km/h", power, speed),
+                    displayValue = consumption?.let { String.format(Locale.US, "%.1f kWh/100 km", it) } ?: "0.0 kWh/100 km",
+                    monotonicTimestampMs = now,
+                    status = SampleStatus.LIVE,
+                    detail = "Dashboard formülü: güç / hız × 100",
+                ),
+            )
+        }
+    }
 
     private fun statusSample(def: VhalDefinition, status: SampleStatus, detail: String) = SensorSample(
         definition = sensorDefinition(def),
