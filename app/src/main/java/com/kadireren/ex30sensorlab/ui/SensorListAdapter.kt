@@ -15,7 +15,10 @@ import com.kadireren.ex30sensorlab.model.SampleStatus
 import com.kadireren.ex30sensorlab.model.SensorSample
 import java.util.Locale
 
-class SensorListAdapter(private val context: Context) : BaseAdapter() {
+class SensorListAdapter(
+    private val context: Context,
+    private val language: UiLanguage = UiLanguage.TURKISH,
+) : BaseAdapter() {
     private val samples = linkedMapOf<String, SensorSample>()
     var focusedKey: String? = null
 
@@ -48,7 +51,7 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
             }
         }
         root.addView(TextView(context).apply {
-            text = sample.definition.name
+            text = UiLanguageText.sensorName(sample.definition.key, sample.definition.name, language)
             setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_text))
             textSize = 18f
             setTypeface(typeface, Typeface.BOLD)
@@ -57,19 +60,23 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             addView(TextView(context).apply {
-                text = sample.displayValue
+                text = localized(sample.displayValue)
                 setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_accent))
                 textSize = 17f
                 layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
             })
             addView(TextView(context).apply {
-                text = String.format(Locale.US, "%s · %.1f Hz · %d ms · yaş %d ms", effectiveStatus.name, sample.actualHz, sample.latencyMs, ageMs)
+                text = if (language == UiLanguage.ENGLISH) {
+                    String.format(Locale.US, "%s · %.1f Hz · %d ms · age %d ms", effectiveStatus.name, sample.actualHz, sample.latencyMs, ageMs)
+                } else {
+                    String.format(Locale.US, "%s · %.1f Hz · %d ms · yaş %d ms", effectiveStatus.name, sample.actualHz, sample.latencyMs, ageMs)
+                }
                 setTextColor(Color.LTGRAY)
                 textSize = 13f
             })
         })
         root.addView(TextView(context).apply {
-            text = "${sample.definition.identifier} · ham: ${sample.rawValue} · ${sample.detail}"
+            text = "${sample.definition.identifier} · ${if (language == UiLanguage.ENGLISH) "raw" else "ham"}: ${sample.rawValue} · ${localized(sample.detail)}"
             setTextColor(context.getColor(com.kadireren.ex30sensorlab.R.color.lab_text_secondary))
             textSize = 12f
             maxLines = 3
@@ -83,6 +90,22 @@ class SensorListAdapter(private val context: Context) : BaseAdapter() {
         SampleStatus.ERROR, SampleStatus.PERMISSION_DENIED -> context.getColor(com.kadireren.ex30sensorlab.R.color.lab_error)
         SampleStatus.UNSUPPORTED -> Color.DKGRAY
         else -> context.getColor(com.kadireren.ex30sensorlab.R.color.lab_accent)
+    }
+
+    private fun localized(text: String): String {
+        if (language != UiLanguage.ENGLISH) return text
+        return text
+            .replace("sensör", "sensor")
+            .replace("hücre", "cell")
+            .replace("Araç bildirmedi", "Not reported by vehicle")
+            .replace("Örnek bekleniyor", "Waiting for sample")
+            .replace("hedef", "target")
+            .replace("İzin verilmedi", "Permission denied")
+            .replace("Kayıt hatası", "Registration error")
+            .replace("VHAL hata · alan", "VHAL error · area")
+            .replace("VHAL enerji / kapasite", "VHAL energy / capacity")
+            .replace("Dashboard formülü: güç / hız × 100", "Dashboard formula: power / speed × 100")
+            .replace("Yanıt çözülemedi", "Response could not be decoded")
     }
 
     private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()

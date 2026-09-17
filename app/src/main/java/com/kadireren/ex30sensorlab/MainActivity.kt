@@ -63,6 +63,9 @@ import com.kadireren.ex30sensorlab.ui.DriveSensorAdapter
 import com.kadireren.ex30sensorlab.ui.DriveLayout
 import com.kadireren.ex30sensorlab.ui.SensorListAdapter
 import com.kadireren.ex30sensorlab.ui.SensorVisibilityPreferences
+import com.kadireren.ex30sensorlab.ui.UiLanguage
+import com.kadireren.ex30sensorlab.ui.UiLanguagePreferences
+import com.kadireren.ex30sensorlab.ui.UiLanguageText
 import com.kadireren.ex30sensorlab.vhal.AndroidVhalReader
 import com.kadireren.ex30sensorlab.vhal.SafetyState
 import com.kadireren.ex30sensorlab.vhal.VhalCatalog
@@ -124,6 +127,7 @@ class MainActivity : Activity() {
     private lateinit var swipeDetector: GestureDetector
     private val swipeMinDistancePx by lazy { dp(64) }
     private val ioExecutor = Executors.newSingleThreadExecutor()
+    private val uiLanguage: UiLanguage get() = UiLanguagePreferences.current(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -228,39 +232,43 @@ class MainActivity : Activity() {
         stopActiveScreen()
         currentPage = null
         driveStatusView = null
-        val root = baseScreen("EX30 Sensor Lab", if (carPropertyManager != null) "● Araç bağlantısı hazır" else "○ Araç bağlantısı bekleniyor", false)
+        val root = baseScreen("EX30 Sensor Lab", if (carPropertyManager != null) t("● Araç bağlantısı hazır", "● Vehicle connection ready") else t("○ Araç bağlantısı bekleniyor", "○ Waiting for vehicle connection"), false)
         val cards = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(20), dp(10), dp(20), dp(4))
         }
-        cards.addView(menuCard("1", "AAOS Verileri", "${VhalCatalog.entries.size} VHAL sensörü") { showAaos() }, menuCardLayoutParams())
-        cards.addView(menuCard("2", "OBD Verileri", "Bluetooth OBD adaptörü ile okuma") { showObd() }, menuCardLayoutParams(dp(16)))
+        cards.addView(menuCard("1", t("AAOS Verileri", "AAOS Data"), t("${VhalCatalog.entries.size} VHAL sensörü", "${VhalCatalog.entries.size} VHAL sensors")) { showAaos() }, menuCardLayoutParams())
+        cards.addView(menuCard("2", t("OBD Verileri", "OBD Data"), t("Bluetooth OBD adaptörü ile okuma", "Read through Bluetooth OBD adapter")) { showObd() }, menuCardLayoutParams(dp(16)))
         root.addView(cards, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val row2 = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
             setPadding(dp(20), dp(4), dp(20), dp(4))
         }
-        row2.addView(menuCard("3", "Ekran Sensörleri", "VHAL ve OBD görünürlüğünü seç") { showSensorSelection() }, menuCardLayoutParams())
-        row2.addView(menuCard("4", "Sürüş Görünümü", "Tam ekran · yoğun sensör ızgarası") { showDriveView() }, menuCardLayoutParams(dp(16)))
+        row2.addView(menuCard("3", t("Ekran Sensörleri", "Display Sensors"), t("VHAL ve OBD görünürlüğünü seç", "Choose VHAL and OBD visibility")) { showSensorSelection() }, menuCardLayoutParams())
+        row2.addView(menuCard("4", t("Sürüş Görünümü", "Drive View"), t("Tam ekran · yoğun sensör ızgarası", "Full screen · dense sensor grid")) { showDriveView() }, menuCardLayoutParams(dp(16)))
         root.addView(row2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val homeActions = controlRow().apply { setPadding(dp(20), dp(5), dp(20), dp(5)) }
-        homeActions.addView(homeActionButton("OBD'ye bağlan", color(R.color.lab_accent), color(R.color.lab_accent_surface)) {
+        homeActions.addView(homeActionButton(t("OBD'ye bağlan", "Connect OBD"), color(R.color.lab_accent), color(R.color.lab_accent_surface)) {
             tryConnectPreferredObd(returnTo = { showHome() }, showListOnFailure = true)
         })
-        homeActions.addView(homeActionButton("Diğer cihazlar", color(R.color.lab_violet)) { showObdDevices { showHome() } })
-        homeActions.addView(homeActionButton("Bağlantıyı kes", color(R.color.lab_warning)) {
+        homeActions.addView(homeActionButton(t("Diğer cihazlar", "Other devices"), color(R.color.lab_violet)) { showObdDevices { showHome() } })
+        homeActions.addView(homeActionButton(t("Bağlantıyı kes", "Disconnect"), color(R.color.lab_warning)) {
             if (obdConnectionState == ObdConnectionState.CONNECTED) {
                 disconnectObdConnection()
                 showHome()
             } else {
-                toast("OBD bağlı değil")
+                toast(t("OBD bağlı değil", "OBD is not connected"))
             }
         })
-        homeActions.addView(homeActionButton("Uygulamadan çık", color(R.color.lab_error), color(R.color.lab_error_surface), endMargin = 0) { exitApp() })
+        homeActions.addView(homeActionButton(if (uiLanguage == UiLanguage.ENGLISH) "Türkçe" else "English", color(R.color.lab_success)) {
+            UiLanguagePreferences.save(this, if (uiLanguage == UiLanguage.ENGLISH) UiLanguage.TURKISH else UiLanguage.ENGLISH)
+            showHome()
+        })
+        homeActions.addView(homeActionButton(t("Uygulamadan çık", "Exit app"), color(R.color.lab_error), color(R.color.lab_error_surface), endMargin = 0) { exitApp() })
         root.addView(homeActions)
-        root.addView(label("● Salt-okunur OBD   ·   Otomatik yeniden bağlantı   ·   v${appVersionName()}", 13f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        root.addView(label(t("● Salt-okunur OBD   ·   Otomatik yeniden bağlantı   ·   v${appVersionName()}", "● Read-only OBD   ·   Automatic reconnection   ·   v${appVersionName()}"), 13f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(5), 0, dp(8))
         })
         setContentView(root)
@@ -272,8 +280,8 @@ class MainActivity : Activity() {
         currentPage = Page.SENSORS
         driveStatusView = null
         val root = baseScreen(
-            "Ekran Sensörleri",
-            "AAOS, OBD ve Sürüş Görünümü kartlarını ayrı ayrı seçin",
+            t("Ekran Sensörleri", "Display Sensors"),
+            t("AAOS, OBD ve Sürüş Görünümü kartlarını ayrı ayrı seçin", "Choose AAOS, OBD and Drive View cards separately"),
             true,
         )
         val columns = LinearLayout(this).apply {
@@ -314,13 +322,13 @@ class MainActivity : Activity() {
                 setTypeface(typeface, Typeface.BOLD)
             })
             addView(controlRow().apply {
-                addView(homeActionButton("Tümü", color(R.color.lab_success)) {
+                addView(homeActionButton(t("Tümü", "All"), color(R.color.lab_success)) {
                     selected.clear()
                     selected.addAll(available)
                     checkBoxes.forEach { it.isChecked = true }
                     persist()
                 })
-                addView(homeActionButton("Hiçbiri", color(R.color.lab_warning), endMargin = 0) {
+                addView(homeActionButton(t("Hiçbiri", "None"), color(R.color.lab_warning), endMargin = 0) {
                     selected.clear()
                     checkBoxes.forEach { it.isChecked = false }
                     persist()
@@ -331,7 +339,7 @@ class MainActivity : Activity() {
                     orientation = LinearLayout.VERTICAL
                     choices.forEach { (key, sensorLabel) ->
                         addView(CheckBox(this@MainActivity).apply {
-                            text = sensorLabel
+                            text = UiLanguageText.sensorName(key, sensorLabel, uiLanguage)
                             tag = key
                             textSize = 16f
                             setTextColor(color(R.color.lab_text))
@@ -350,6 +358,7 @@ class MainActivity : Activity() {
     }
 
     private fun visibleSensorKeys(source: SensorSource): Set<String> {
+        if (source == SensorSource.SCANNER) return emptySet()
         val available = when (source) {
             SensorSource.VHAL -> VhalCatalog.displayChoices.map { it.first }.toSet()
             SensorSource.OBD -> ObdCatalog.displayChoices.map { it.first }.toSet()
@@ -364,19 +373,19 @@ class MainActivity : Activity() {
         currentPage = Page.AAOS
         driveStatusView = null
         val manager = carPropertyManager
-        val root = baseScreen("AAOS Verileri", if (manager != null) "● VHAL hazır" else "○ Car API bekleniyor", true)
+        val root = baseScreen(t("AAOS Verileri", "AAOS Data"), if (manager != null) t("● VHAL hazır", "● VHAL ready") else t("○ Car API bekleniyor", "○ Waiting for Car API"), true)
         val calibration = LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(8), dp(18), dp(8))
-            val direction = when (powerMultiplier()) { 1 -> "hızlanmada +"; -1 -> "hızlanmada −"; else -> "doğrulanmadı" }
-            addView(label("Güç yönü: $direction", 17f, color(R.color.lab_text_secondary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(actionButton("Hızlanmada +") { savePowerMultiplier(1); showAaos() })
-            addView(actionButton("Hızlanmada −") { savePowerMultiplier(-1); showAaos() })
-            addView(actionButton("Sıfırla") { savePowerMultiplier(0); showAaos() })
+            val direction = when (powerMultiplier()) { 1 -> t("hızlanmada +", "+ while accelerating"); -1 -> t("hızlanmada −", "− while accelerating"); else -> t("doğrulanmadı", "not verified") }
+            addView(label("${t("Güç yönü", "Power direction")}: $direction", 17f, color(R.color.lab_text_secondary)), LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(actionButton(t("Hızlanmada +", "Acceleration +")) { savePowerMultiplier(1); showAaos() })
+            addView(actionButton(t("Hızlanmada −", "Acceleration −")) { savePowerMultiplier(-1); showAaos() })
+            addView(actionButton(t("Sıfırla", "Reset")) { savePowerMultiplier(0); showAaos() })
         }
         root.addView(calibration)
-        val adapter = SensorListAdapter(this)
+        val adapter = SensorListAdapter(this, uiLanguage)
         sensorListAdapter = adapter
         startStatusRefresh()
         root.addView(ListView(this).apply {
@@ -389,7 +398,7 @@ class MainActivity : Activity() {
 
         logger = SessionLogger(this).also { it.start("aaos") }
         if (manager == null) {
-            adapter.update(messageSample("Car API hazır değil", SampleStatus.ERROR))
+            adapter.update(messageSample(t("Car API hazır değil", "Car API is not ready"), SampleStatus.ERROR))
             return
         }
         val visibleKeys = visibleSensorKeys(SensorSource.VHAL)
@@ -410,14 +419,15 @@ class MainActivity : Activity() {
         driveSource = SensorSource.VHAL
         drivePages[SensorSource.VHAL] = 0
         drivePages[SensorSource.OBD] = 0
-        val visibleKeys = SensorSource.entries.associateWith(::visibleSensorKeys)
+        val visibleKeys = UiLanguageText.visibleSensorSources.associateWith(::visibleSensorKeys)
         val adapter = DriveSensorAdapter(
             this,
             SensorSource.VHAL,
             driveLayout(),
             visibleKeys = { source -> visibleKeys.getValue(source) },
+            language = uiLanguage,
         ).also { driveAdapter = it }
-        val root = baseScreen("Sürüş Görünümü", "Canlı sensör değerleri", true)
+        val root = baseScreen(t("Sürüş Görünümü", "Drive View"), t("Canlı sensör değerleri", "Live sensor values"), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status").also { driveStatusView = it }
         val sourceRow = controlRow().apply { setPadding(dp(12), dp(4), dp(12), dp(2)) }
         driveSourceVhalButton = driveTabButton("VHAL") { selectDriveSource(SensorSource.VHAL, adapter, status) }
@@ -425,10 +435,10 @@ class MainActivity : Activity() {
         sourceRow.addView(driveSourceVhalButton)
         sourceRow.addView(driveSourceObdButton)
         var layoutButton: Button? = null
-        layoutButton = driveTabButton(adapter.layout.label) { showDriveLayoutPicker(adapter, layoutButton) }
+        layoutButton = driveTabButton(driveLayoutLabel(adapter.layout)) { showDriveLayoutPicker(adapter, layoutButton) }
         sourceRow.addView(layoutButton)
         root.addView(sourceRow)
-        drivePageLabel = label("VHAL · Sayfa 1 / 1", 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
+        drivePageLabel = label(t("VHAL · Sayfa 1 / 1", "VHAL · Page 1 / 1"), 15f, color(R.color.lab_text_secondary), Gravity.CENTER).apply {
             setPadding(0, dp(2), 0, dp(2))
         }
         root.addView(drivePageLabel)
@@ -479,18 +489,18 @@ class MainActivity : Activity() {
             }
             ensureObdPolling()
         } else if (manager == null) {
-            status.text = "VHAL ve OBD verisi yok"
+            status.text = t("VHAL ve OBD verisi yok", "No VHAL or OBD data")
         }
     }
 
     private fun showDriveLayoutPicker(adapter: DriveSensorAdapter, button: Button?) {
         val layouts = DriveLayout.entries
         AlertDialog.Builder(this)
-            .setTitle("Sürüş görünümü")
-            .setSingleChoiceItems(layouts.map { it.label }.toTypedArray(), layouts.indexOf(adapter.layout)) { dialog, selected ->
+            .setTitle(t("Sürüş görünümü", "Drive view"))
+            .setSingleChoiceItems(layouts.map(::driveLayoutLabel).toTypedArray(), layouts.indexOf(adapter.layout)) { dialog, selected ->
                 adapter.layout = layouts[selected]
                 getSharedPreferences("lab", MODE_PRIVATE).edit().putString("drive_layout", adapter.layout.name).apply()
-                button?.text = adapter.layout.label
+                button?.text = driveLayoutLabel(adapter.layout)
                 val list = findDriveListView()
                 if (list != null && list.width > 0 && list.height > 0) {
                     adapter.fitToViewport(
@@ -504,13 +514,19 @@ class MainActivity : Activity() {
                 refreshDrivePage(adapter, driveStatusView)
                 dialog.dismiss()
             }
-            .setNegativeButton("Vazgeç", null)
+            .setNegativeButton(t("Vazgeç", "Cancel"), null)
             .show()
     }
 
     private fun driveLayout(): DriveLayout = runCatching {
         DriveLayout.valueOf(getSharedPreferences("lab", MODE_PRIVATE).getString("drive_layout", DriveLayout.GRID.name)!!)
     }.getOrDefault(DriveLayout.GRID)
+
+    private fun driveLayoutLabel(layout: DriveLayout): String = when (layout) {
+        DriveLayout.GRID -> t("Kart Izgara", "Card Grid")
+        DriveLayout.GAUGES -> t("Dijital Kadran", "Digital Gauges")
+        DriveLayout.MODERN -> t("Modern Panel", "Modern Dashboard")
+    }
 
     private fun findDriveListView(): ListView? {
         val content = findViewById<ViewGroup>(android.R.id.content) ?: return null
@@ -552,7 +568,11 @@ class MainActivity : Activity() {
         drivePages[driveSource] = adapter.page
         val sourceLabel = if (driveSource == SensorSource.VHAL) "VHAL" else "OBD"
         drivePageLabel?.text =
-            "$sourceLabel · Sayfa ${adapter.page + 1} / ${adapter.pageCount()} · ${adapter.pageSize} sensör/sayfa · kaydır"
+            if (uiLanguage == UiLanguage.ENGLISH) {
+                "$sourceLabel · Page ${adapter.page + 1} / ${adapter.pageCount()} · ${adapter.pageSize} sensors/page · swipe"
+            } else {
+                "$sourceLabel · Sayfa ${adapter.page + 1} / ${adapter.pageCount()} · ${adapter.pageSize} sensör/sayfa · kaydır"
+            }
         updateDriveSourceButtons()
         status?.text = driveStatusText()
     }
@@ -561,10 +581,10 @@ class MainActivity : Activity() {
         val vhalReady = carPropertyManager != null
         val obdReady = obdConnectionState == ObdConnectionState.CONNECTED
         return when {
-            vhalReady && obdReady -> "VHAL + OBD aktif"
-            vhalReady -> "VHAL aktif · OBD bağlı değil"
-            obdReady -> "OBD aktif · VHAL yok"
-            else -> "Veri kaynağı bekleniyor"
+            vhalReady && obdReady -> t("VHAL + OBD aktif", "VHAL + OBD active")
+            vhalReady -> t("VHAL aktif · OBD bağlı değil", "VHAL active · OBD not connected")
+            obdReady -> t("OBD aktif · VHAL yok", "OBD active · VHAL unavailable")
+            else -> t("Veri kaynağı bekleniyor", "Waiting for data source")
         }
     }
 
@@ -587,13 +607,13 @@ class MainActivity : Activity() {
         stopActiveScreen()
         currentPage = Page.OBD
         driveStatusView = null
-        val root = baseScreen("OBD Verileri", obdScreenStatusText(), true)
+        val root = baseScreen(t("OBD Verileri", "OBD Data"), obdScreenStatusText(), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
-        val adapter = SensorListAdapter(this)
+        val adapter = SensorListAdapter(this, uiLanguage)
         sensorListAdapter = adapter
         startStatusRefresh()
         val controls = controlRow()
-        controls.addView(actionButton("Download'a aktar") { exportLogsToDownload() })
+        controls.addView(actionButton(t("Download'a aktar", "Export to Downloads")) { exportLogsToDownload() })
         root.addView(controls)
         root.addView(ListView(this).apply {
             dividerHeight = dp(8)
@@ -605,7 +625,7 @@ class MainActivity : Activity() {
                 val next = if (adapter.focusedKey == key) null else key
                 adapter.focusedKey = next
                 obdPolling?.focus(next)
-                status.text = next?.let { "Odak modu: $it" } ?: "Genel OBD taraması"
+                status.text = next?.let { "${t("Odak modu", "Focus mode")}: $it" } ?: t("Genel OBD taraması", "General OBD polling")
                 adapter.notifyDataSetChanged()
             }
         }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -932,15 +952,15 @@ class MainActivity : Activity() {
         val preferred = ObdPreferredDevice.resolve(this, scanner)
         val status = obdConnectionStatusView(statusOverride)
         if (preferred != null) {
-            if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} bağlanıyor…")
+            if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} ${t("bağlanıyor…", "connecting…")}")
             connectObdToDevice(preferred, status) {
                 cancelPreferredDiscovery()
-                if (!quiet) toast("OBD bağlantısı kuruldu · ${preferred.name}")
+                if (!quiet) toast("${t("OBD bağlantısı kuruldu", "OBD connection established")} · ${preferred.name}")
                 returnTo()
             }
             return
         }
-        if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} aranıyor…")
+        if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} ${t("aranıyor…", "searching…")}")
         discoverPreferredObd(scanner, status, returnTo, showListOnFailure, quiet)
     }
 
@@ -954,15 +974,15 @@ class MainActivity : Activity() {
         var connecting = false
         preferredDiscoveryActive = true
         deviceScanner = scanner
-        status?.text = "${ObdPreferredDevice.DISPLAY_NAME} aranıyor…"
+        status?.text = "${ObdPreferredDevice.DISPLAY_NAME} ${t("aranıyor…", "searching…")}"
         val timeout = Runnable {
             if (!preferredDiscoveryActive || connecting || obdConnectionState == ObdConnectionState.CONNECTED) return@Runnable
             cancelPreferredDiscovery()
             if (showListOnFailure) {
-                if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} bulunamadı · cihaz listesi açılıyor")
+                if (!quiet) toast("${ObdPreferredDevice.DISPLAY_NAME} ${t("bulunamadı · cihaz listesi açılıyor", "not found · opening device list")}")
                 showObdDevices(returnTo)
             } else if (!quiet) {
-                toast("${ObdPreferredDevice.DISPLAY_NAME} bulunamadı")
+                toast("${ObdPreferredDevice.DISPLAY_NAME} ${t("bulunamadı", "not found")}")
             }
         }
         autoConnectHandler.postDelayed(timeout, PREFERRED_DISCOVERY_TIMEOUT_MS)
@@ -976,7 +996,7 @@ class MainActivity : Activity() {
                     runOnUiThread {
                         connectObdToDevice(entry, obdConnectionStatusView(status)) {
                             cancelPreferredDiscovery()
-                            if (!quiet) toast("OBD bağlantısı kuruldu · ${entry.name}")
+                            if (!quiet) toast("${t("OBD bağlantısı kuruldu", "OBD connection established")} · ${entry.name}")
                             returnTo()
                         }
                     }
@@ -990,7 +1010,7 @@ class MainActivity : Activity() {
         } catch (e: Exception) {
             cancelPreferredDiscovery()
             if (showListOnFailure) showObdDevices(returnTo)
-            else if (!quiet) toast("Bluetooth taraması başlatılamadı: ${e.message}")
+            else if (!quiet) toast("${t("Bluetooth taraması başlatılamadı", "Bluetooth scan could not start")}: ${e.message}")
         }
     }
 
@@ -1008,7 +1028,7 @@ class MainActivity : Activity() {
         driveStatusView = null
         obdDeviceReturnAction = returnTo
         val scanner = BluetoothObdDeviceScanner(this).also { deviceScanner = it }
-        val root = baseScreen("OBD Cihazları", "Bluetooth cihazlarını seçin", true)
+        val root = baseScreen(t("OBD Cihazları", "OBD Devices"), t("Bluetooth cihazlarını seçin", "Select a Bluetooth device"), true)
         val status = root.getChildAt(0).findViewWithTag<TextView>("status")
         val devices = linkedMapOf<String, ObdDeviceEntry>()
         val rows = mutableListOf<String>()
@@ -1021,10 +1041,10 @@ class MainActivity : Activity() {
                     .thenByDescending { it.bonded }
                     .thenBy { it.name.lowercase() },
             ).forEach { entry ->
-                    val prefix = if (entry.bonded) "● Eşleşmiş" else "○ Keşfedildi"
+                    val prefix = if (entry.bonded) t("● Eşleşmiş", "● Paired") else t("○ Keşfedildi", "○ Discovered")
                     rows += "$prefix · ${entry.name} · ${entry.address}"
                 }
-            if (rows.isEmpty()) rows += "Henüz cihaz bulunamadı"
+            if (rows.isEmpty()) rows += t("Henüz cihaz bulunamadı", "No devices found yet")
             adapter.notifyDataSetChanged()
         }
 
@@ -1033,54 +1053,54 @@ class MainActivity : Activity() {
             try {
                 scanner.bondedDevices().forEach { devices[it.address] = it }
                 refreshList()
-                status.text = "${devices.size} cihaz listelendi"
+                status.text = t("${devices.size} cihaz listelendi", "${devices.size} devices listed")
             } catch (e: Exception) {
-                status.text = "Cihaz listesi alınamadı: ${e.message}"
+                status.text = "${t("Cihaz listesi alınamadı", "Device list could not be loaded")}: ${e.message}"
             }
         }
 
         val controls = controlRow()
         var scanButton: Button? = null
-        scanButton = actionButton("Taramayı başlat") {
+        scanButton = actionButton(t("Taramayı başlat", "Start scan")) {
             if (!ensureBluetoothPermissions(status)) return@actionButton
             if (scanner.isScanning) {
                 scanner.stopDiscovery()
-                scanButton?.text = "Taramayı başlat"
-                status.text = "${devices.size} cihaz listelendi"
+                scanButton?.text = t("Taramayı başlat", "Start scan")
+                status.text = t("${devices.size} cihaz listelendi", "${devices.size} devices listed")
                 return@actionButton
             }
-            scanButton?.text = "Taramayı durdur"
-            status.text = "Yakındaki Bluetooth cihazları taranıyor…"
+            scanButton?.text = t("Taramayı durdur", "Stop scan")
+            status.text = t("Yakındaki Bluetooth cihazları taranıyor…", "Scanning nearby Bluetooth devices…")
             try {
                 scanner.startDiscovery(
                     onFound = { entry ->
                         runOnUiThread {
                             devices[entry.address] = entry
                             refreshList()
-                            status.text = "Tarama sürüyor · ${devices.size} cihaz"
+                            status.text = t("Tarama sürüyor · ${devices.size} cihaz", "Scanning · ${devices.size} devices")
                         }
                     },
                     onFinished = {
                         runOnUiThread {
-                            scanButton?.text = "Taramayı başlat"
-                            status.text = "Tarama tamamlandı · ${devices.size} cihaz"
+                            scanButton?.text = t("Taramayı başlat", "Start scan")
+                            status.text = t("Tarama tamamlandı · ${devices.size} cihaz", "Scan complete · ${devices.size} devices")
                         }
                     },
                 )
             } catch (e: Exception) {
-                scanButton?.text = "Taramayı başlat"
-                status.text = "Tarama başlatılamadı: ${e.message}"
+                scanButton?.text = t("Taramayı başlat", "Start scan")
+                status.text = "${t("Tarama başlatılamadı", "Scan could not start")}: ${e.message}"
             }
         }
         controls.addView(scanButton)
-        controls.addView(actionButton("Eşleşmiş cihazları yenile") { loadBonded() })
-        controls.addView(actionButton("Geri") {
+        controls.addView(actionButton(t("Eşleşmiş cihazları yenile", "Refresh paired devices")) { loadBonded() })
+        controls.addView(actionButton(t("Geri", "Back")) {
             scanner.stopDiscovery()
             deviceScanner = null
             returnTo()
         })
         root.addView(controls)
-        root.addView(label("Bağlanmak için bir cihaza dokunun", 16f, color(R.color.lab_text_secondary)).apply {
+        root.addView(label(t("Bağlanmak için bir cihaza dokunun", "Tap a device to connect"), 16f, color(R.color.lab_text_secondary)).apply {
             setPadding(dp(18), 0, 0, dp(6))
         })
         root.addView(ListView(this).apply {
@@ -1098,7 +1118,7 @@ class MainActivity : Activity() {
                 connectObdToDevice(entry, status) {
                     scanner.stopDiscovery()
                     deviceScanner = null
-                    toast("OBD bağlantısı kuruldu")
+                    toast(t("OBD bağlantısı kuruldu", "OBD connection established"))
                     returnTo()
                 }
             }
@@ -1115,7 +1135,7 @@ class MainActivity : Activity() {
         obdDeviceAddress = entry.address
         obdErrorMessage = null
         setObdConnectionState(ObdConnectionState.CONNECTING)
-        status.text = "${entry.name} bağlanıyor…"
+        status.text = "${entry.name} ${t("bağlanıyor…", "connecting…")}"
         ioExecutor.execute {
             try {
                 elmProtocol?.disconnect()
@@ -1127,25 +1147,25 @@ class MainActivity : Activity() {
                             when (event) {
                                 ElmConnectionEvent.RECONNECTING -> {
                                     setObdConnectionState(ObdConnectionState.CONNECTING)
-                                    obdStateSink?.invoke("OBD bağlantısı geri kuruluyor…")
+                                    obdStateSink?.invoke(t("OBD bağlantısı geri kuruluyor…", "Restoring OBD connection…"))
                                 }
                                 ElmConnectionEvent.RECONNECTED -> {
                                     obdErrorMessage = null
                                     setObdConnectionState(ObdConnectionState.CONNECTED)
-                                    obdStateSink?.invoke("OBD yeniden bağlandı · okumalar sürüyor")
+                                    obdStateSink?.invoke(t("OBD yeniden bağlandı · okumalar sürüyor", "OBD reconnected · readings resumed"))
                                 }
                             }
                         }
                     },
                 )
-                runOnUiThread { status.text = "${entry.name} · ELM327 başlatılıyor…" }
+                runOnUiThread { status.text = "${entry.name} · ${t("ELM327 başlatılıyor…", "initializing ELM327…")}" }
                 val id = protocol.connect(entry.address, verifyLink = false)
                 elmProtocol = protocol
                 obdAdapterId = id.lineSequence().firstOrNull()?.trim().orEmpty().ifBlank { "ELM327" }
                 runOnUiThread {
                     ObdPreferredDevice.remember(this@MainActivity, entry)
                     setObdConnectionState(ObdConnectionState.CONNECTED)
-                    status.text = "● Bağlı: ${entry.name} · $obdAdapterId"
+                    status.text = "● ${t("Bağlı", "Connected")}: ${entry.name} · $obdAdapterId"
                     ensureObdPolling(forceRestart = true)
                     onConnected()
                 }
@@ -1155,16 +1175,16 @@ class MainActivity : Activity() {
                 } catch (verifyError: Exception) {
                     runOnUiThread {
                         obdErrorMessage = verifyError.message
-                        toast("ECU doğrulama uyarısı: ${verifyError.message ?: "bilinmiyor"}")
+                        toast("${t("ECU doğrulama uyarısı", "ECU verification warning")}: ${verifyError.message ?: t("bilinmiyor", "unknown")}")
                         refreshObdIndicator()
                     }
                 }
             } catch (e: Exception) {
                 runOnUiThread {
-                    obdErrorMessage = e.message ?: "Bağlantı hatası"
+                    obdErrorMessage = e.message ?: t("Bağlantı hatası", "Connection error")
                     setObdConnectionState(ObdConnectionState.ERROR)
-                    status.text = "Bağlantı hatası: $obdErrorMessage"
-                    toast("OBD bağlantısı kurulamadı: $obdErrorMessage")
+                    status.text = "${t("Bağlantı hatası", "Connection error")}: $obdErrorMessage"
+                    toast("${t("OBD bağlantısı kurulamadı", "OBD connection failed")}: $obdErrorMessage")
                 }
             }
         }
@@ -1185,7 +1205,7 @@ class MainActivity : Activity() {
                 },
                 onState = { text ->
                     runOnUiThread {
-                        obdStateSink?.invoke(text)
+                        obdStateSink?.invoke(localizedObdState(text))
                         refreshObdIndicator()
                     }
                 },
@@ -1200,7 +1220,7 @@ class MainActivity : Activity() {
                 },
                 onState = { text ->
                     runOnUiThread {
-                        obdStateSink?.invoke(text)
+                        obdStateSink?.invoke(localizedObdState(text))
                         refreshObdIndicator()
                     }
                 },
@@ -1271,14 +1291,14 @@ class MainActivity : Activity() {
     }
 
     private fun obdIndicatorText(): String = when (obdConnectionState) {
-        ObdConnectionState.DISCONNECTED -> "○ OBD\nBağlı değil"
-        ObdConnectionState.CONNECTING -> "◐ OBD\nBağlanıyor…"
+        ObdConnectionState.DISCONNECTED -> t("○ OBD\nBağlı değil", "○ OBD\nNot connected")
+        ObdConnectionState.CONNECTING -> t("◐ OBD\nBağlanıyor…", "◐ OBD\nConnecting…")
         ObdConnectionState.CONNECTED -> buildString {
             append("● OBD\n")
-            append(obdDeviceName ?: "Bağlı")
+            append(obdDeviceName ?: t("Bağlı", "Connected"))
             obdAdapterId?.let { append("\n").append(it) }
         }
-        ObdConnectionState.ERROR -> "✕ OBD\nHata"
+        ObdConnectionState.ERROR -> t("✕ OBD\nHata", "✕ OBD\nError")
     }
 
     private fun obdIndicatorBackground(): GradientDrawable = rounded(
@@ -1295,18 +1315,18 @@ class MainActivity : Activity() {
     }
 
     private fun obdScreenStatusText(): String = when (obdConnectionState) {
-        ObdConnectionState.CONNECTED -> "● Bağlı: ${obdDeviceName ?: "OBD"} · ${obdAdapterId ?: "ELM327"}"
-        ObdConnectionState.CONNECTING -> "◐ ${obdDeviceName ?: "OBD"} bağlanıyor…"
-        ObdConnectionState.ERROR -> "Bağlantı hatası: ${obdErrorMessage ?: "bilinmiyor"}"
-        ObdConnectionState.DISCONNECTED -> "○ OBD bağlı değil"
+        ObdConnectionState.CONNECTED -> "● ${t("Bağlı", "Connected")}: ${obdDeviceName ?: "OBD"} · ${obdAdapterId ?: "ELM327"}"
+        ObdConnectionState.CONNECTING -> "◐ ${obdDeviceName ?: "OBD"} ${t("bağlanıyor…", "connecting…")}"
+        ObdConnectionState.ERROR -> "${t("Bağlantı hatası", "Connection error")}: ${obdErrorMessage ?: t("bilinmiyor", "unknown")}"
+        ObdConnectionState.DISCONNECTED -> t("○ OBD bağlı değil", "○ OBD not connected")
     }
 
     private fun ensureBluetoothPermissions(status: TextView? = null): Boolean {
         val missing = requiredBluetoothPermissions().filter { checkSelfPermission(it) != PackageManager.PERMISSION_GRANTED }
         if (missing.isEmpty()) return true
         requestPermissions(missing.toTypedArray(), REQUEST_PERMISSIONS)
-        status?.text = "Bluetooth izni gerekli"
-        toast("Bluetooth izni gerekli")
+        status?.text = t("Bluetooth izni gerekli", "Bluetooth permission required")
+        toast(t("Bluetooth izni gerekli", "Bluetooth permission required"))
         return false
     }
 
@@ -1464,7 +1484,7 @@ class MainActivity : Activity() {
     private fun exportLogsToDownload() {
         val files = listOfNotNull(logger?.csvFile, logger?.jsonlFile).filter { it.isFile }
         if (files.isEmpty()) {
-            toast("Aktarılacak kayıt yok")
+            toast(t("Aktarılacak kayıt yok", "No logs to export"))
             return
         }
         ioExecutor.execute {
@@ -1474,10 +1494,10 @@ class MainActivity : Activity() {
                     val paths = exported.joinToString("\n") { file ->
                         if (file.absolutePath.isNotBlank()) file.absolutePath else "${DownloadStorage.displayPath()}/${file.name}"
                     }
-                    toast("${exported.size} dosya Download'a yazıldı:\n$paths")
+                    toast(t("${exported.size} dosya Download'a yazıldı:\n$paths", "${exported.size} files written to Downloads:\n$paths"))
                 }
             } catch (e: Exception) {
-                runOnUiThread { toast("Download'a aktarılamadı: ${e.message}") }
+                runOnUiThread { toast("${t("Download'a aktarılamadı", "Could not export to Downloads")}: ${e.message}") }
             }
         }
     }
@@ -1522,7 +1542,7 @@ class MainActivity : Activity() {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(24), dp(15), dp(24), dp(14))
             setBackgroundColor(color(R.color.lab_surface))
-            if (back) addView(actionButton("‹ Ana menü") { showHome() })
+            if (back) addView(actionButton(t("‹ Ana menü", "‹ Main menu")) { showHome() })
             addView(LinearLayout(this@MainActivity).apply {
                 orientation = LinearLayout.VERTICAL
                 addView(label("VEHICLE DIAGNOSTICS", 11f, color(R.color.lab_accent)).apply {
@@ -1592,10 +1612,10 @@ class MainActivity : Activity() {
                 maxLines = 1
             })
             addView(label(when (number) {
-                "1" -> "VHAL SENSÖRLERİ  →"
-                "2" -> "CANLI OKUMA  →"
-                "3" -> "YALNIZ ARAÇ SABİTKEN  →"
-                else -> "BÜYÜK VE SADE  →"
+                "1" -> t("VHAL SENSÖRLERİ  →", "VHAL SENSORS  →")
+                "2" -> t("CANLI OKUMA  →", "LIVE DATA  →")
+                "3" -> t("YALNIZ ARAÇ SABİTKEN  →", "ONLY WHILE PARKED  →")
+                else -> t("BÜYÜK VE SADE  →", "LARGE AND SIMPLE  →")
             }, 10f, tileColor).apply {
                 setTypeface(typeface, Typeface.BOLD)
                 maxLines = 1
@@ -2051,6 +2071,12 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
 
     private fun color(id: Int): Int = getColor(id)
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+    private fun t(turkish: String, english: String): String = if (uiLanguage == UiLanguage.ENGLISH) english else turkish
+    private fun localizedObdState(text: String): String = when (text) {
+        "OBD okuma başladı" -> t(text, "OBD polling started")
+        "OBD okuma durdu" -> t(text, "OBD polling stopped")
+        else -> text
+    }
     private fun toast(text: String) = Toast.makeText(this, text, Toast.LENGTH_SHORT).show()
 
     companion object {

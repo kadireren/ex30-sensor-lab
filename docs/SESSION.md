@@ -1,6 +1,21 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-16
+Son güncelleme: 2026-09-17
+
+## 2026-09-17 fiziksel sensör teyidi, İngilizce arayüz ve Sürüş Görünümü düzeltmesi
+
+- Kullanıcı, 2026-09-16'da HCI+BRC eşlemesiyle eklenen sensörlerin tamamının
+  fiziksel EX30'da doğru veri gösterdiğini teyit etti.
+- Ana ekrana kalıcı `English` / `Türkçe` seçimi eklendi. Aktif AAOS, OBD,
+  sensör seçimi, Bluetooth cihaz ve Sürüş Görünümü ekranları ile
+  seçilebilir VHAL/OBD sensör adları iki dilde gösterilir.
+- Sürüş Görünümü açılırken artık kullanılmayan `SCANNER` kaynağı için
+  görünürlük tercihi okunuyor ve uygulama kapanıyordu. Hazırlık yalnız desteklenen
+  `VHAL`/`OBD` kaynaklarıyla sınırlandı; `SCANNER` için güvenli boş sonuç da eklendi.
+- Dahili test sürümü `1.0.17` / `versionCode 21`.
+- Doğrulama: 38 Android unit test ve 8 Python testi geçti; `lintDebug`,
+  `assembleDebug` ve imzalı `bundleRelease` başarılı. Fiziksel araçta bu yeni
+  arayüz sürümünün son dokunmatik kontrolü yine EX30'da yapılmalıdır.
 
 ## 2026-09-16 bağlantı, doğru SOC/tüketim ve sensör seçimi
 

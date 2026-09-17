@@ -29,6 +29,7 @@ class DriveSensorAdapter(
     var sourceFilter: SensorSource,
     var layout: DriveLayout,
     private val visibleKeys: ((SensorSource) -> Set<String>)? = null,
+    private val language: UiLanguage = UiLanguage.TURKISH,
     var pageSize: Int = DEFAULT_PAGE_SIZE,
 ) : BaseAdapter() {
     private val samples = linkedMapOf<String, SensorSample>()
@@ -211,7 +212,7 @@ class DriveSensorAdapter(
         setPadding(dp(iconPad), dp(4), dp(8), dp(4))
         background = cardBackground(false)
         addView(TextView(context).apply {
-            text = sample.definition.name
+            text = UiLanguageText.sensorName(sample.definition.key, sample.definition.name, language)
             setTextColor(context.getColor(R.color.lab_text))
             textSize = when (style) { CardStyle.HERO -> 16f; CardStyle.GAUGE -> 15f; else -> 12f }
             setTypeface(typeface, Typeface.BOLD)
@@ -219,7 +220,11 @@ class DriveSensorAdapter(
             maxLines = 2
         })
         addView(TextView(context).apply {
-            text = sample.displayValue
+            text = if (language == UiLanguage.ENGLISH) {
+                sample.displayValue.replace("sensör", "sensor").replace("hücre", "cell")
+            } else {
+                sample.displayValue
+            }
             setTextColor(context.getColor(if (sample.definition.key.contains("BRAKE") || sample.definition.key.startsWith("brake") || sample.definition.key.contains("GEAR")) R.color.lab_success else R.color.lab_accent))
             textSize = when (style) { CardStyle.HERO -> 44f; CardStyle.GAUGE -> 32f; CardStyle.COMPACT -> 18f; CardStyle.GRID -> 20f }
             setTypeface(typeface, Typeface.BOLD)
