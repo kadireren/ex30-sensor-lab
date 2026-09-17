@@ -446,6 +446,8 @@ gh api repos/kadireren/ex-30-driver-display-private/contents/ex30-companion-runn
 - `app/.../scanner/ScannerController.kt`, `ScanProfileParser.kt`
 - `tools/extract_hci_profile.py`, `tools/extract_snooz_profile.py`
 - `docs/HCI_CAPTURE_TR.md`, `docs/SESSION.md`
+- `docs/CROWPANEL_DASHBOARD_PLAN.md` — ESP32-S3 + iCar Pro 2S BLE bağımsız
+  gösterge mimarisi ve sonraki uygulama adımları
 
 **İlgili Dashboard dosyaları**
 

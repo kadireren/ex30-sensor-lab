@@ -44,6 +44,9 @@ HCI yakalama adımları: [docs/HCI_CAPTURE_TR.md](docs/HCI_CAPTURE_TR.md)
 
 Keşif özeti (VHAL, OBD, HCI, sanal ses): [docs/DISCOVERY_MEMORY.md](docs/DISCOVERY_MEMORY.md)
 
+ESP32-S3 CrowPanel üzerinde doğrudan BLE OBD ile çalışacak bağımsız gösterge
+planı: [docs/CROWPANEL_DASHBOARD_PLAN.md](docs/CROWPANEL_DASHBOARD_PLAN.md)
+
 ## Mac throttle keşfi
 
 Araçta IOS-Vlink ile birincil pasif CAN testi, yedek ECU keşfi ve doğru HCI
