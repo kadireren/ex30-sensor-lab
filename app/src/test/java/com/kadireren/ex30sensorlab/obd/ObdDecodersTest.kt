@@ -55,6 +55,7 @@ class ObdDecodersTest {
         assertEquals("D01601", ObdCatalog.motorSignals.first { it.key == "pedal_pwm" }.ecu?.header)
         assertEquals("D01637", ObdCatalog.motorSignals.first { it.key == "erad_motor_speed" }.ecu?.header)
         assertTrue(ObdCatalog.motorSignals.all { it in ObdCatalog.confirmed })
+        assertTrue(ObdCatalog.motorSignals.all { it.targetHz == 10f })
         assertTrue(ObdCatalog.confirmed.none { it.key.startsWith("brake_") || it.did.contains("FD00") })
     }
 

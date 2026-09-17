@@ -24,9 +24,9 @@ object EcuContexts {
 
 object ObdCatalog {
     val motorSignals = listOf(
-        p("pedal_pwm", "Gaz pedalı PWM sinyali", "E301", "% PWM", EcuContexts.VCFRONT, 2f),
-        p("erad_motor_speed", "ERAD motor devri", "E303", "rpm", EcuContexts.ECU_F, 2f),
-        p("erad_actual_torque", "ERAD gerçek tork", "E304", "Nm", EcuContexts.ECU_F, 2f),
+        p("pedal_pwm", "Gaz pedalı PWM sinyali", "E301", "% PWM", EcuContexts.VCFRONT, 10f),
+        p("erad_motor_speed", "ERAD motor devri", "E303", "rpm", EcuContexts.ECU_F, 10f),
+        p("erad_actual_torque", "ERAD gerçek tork", "E304", "Nm", EcuContexts.ECU_F, 10f),
     )
 
     val carScannerSignals = listOf(

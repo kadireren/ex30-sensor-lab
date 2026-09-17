@@ -2,6 +2,19 @@
 
 Son güncelleme: 2026-09-17
 
+## 2026-09-17 ses sensörleri 10 Hz saha denemesi
+
+- Yalnızca sanal ses için gerekli ve araçta doğrulanmış üç OBD sinyalinin
+  hedef sorgu hızı `2 Hz`'den `10 Hz`'e çıkarıldı: gaz pedalı PWM
+  (`VCFRONT 22E301`), ERAD motor devri (`ECU-F 22E303`) ve ERAD gerçek tork
+  (`ECU-F 22E304`). Diğer OBD sensörlerinin hızları değiştirilmedi.
+- `10 Hz` katalog hedefidir; adaptör/ECU geçişleri nedeniyle araçta elde edilen
+  gerçek hız kartlardaki `actual Hz` alanından kontrol edilmelidir. Sonraki karar,
+  tepki iyileşmesi ile Bluetooth/ELM bağlantı kararlılığı birlikte gözlenerek verilecek.
+- Dahili test sürümü `1.0.18` / `versionCode 22`.
+- Doğrulama: 38 Android unit test ve 8 Python testi geçti; `lintDebug`,
+  `assembleDebug` ve imzalı `bundleRelease` başarılı.
+
 ## 2026-09-17 fiziksel sensör teyidi, İngilizce arayüz ve Sürüş Görünümü düzeltmesi
 
 - Kullanıcı, 2026-09-16'da HCI+BRC eşlemesiyle eklenen sensörlerin tamamının
