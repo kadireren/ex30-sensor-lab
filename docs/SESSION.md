@@ -74,6 +74,27 @@ Son güncelleme: 2026-09-17
 **Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
 bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 
+## 2026-09-18 geçici VHAL–OBD karşılaştırma testi
+
+- Ana menüye `VHAL–OBD Testi` ekranı eklendi. Ekran yalnız karşılaştırma için
+  gereken kanalları canlı gösterir ve OBD polling kapsamını ekran açıkken geçici
+  olarak `F40D`, `2B06–2B09`, `4803`, `4802`, IEM `E301`, ERAD `E303/E304`
+  ile sınırlar; çıkışta kullanıcının normal OBD görünürlük seçimi geri yüklenir.
+- Hız referansı VHAL `PERF_VEHICLE_SPEED_DISPLAY`; adaylar ECU-E `F40D` ve dört
+  teker hızıdır. Güç referansı işaret kalibrasyonu uygulanmamış ham
+  `EV_BATTERY_INSTANTANEOUS_CHARGE_RATE`; adaylar BECM `4803×4802`,
+  `4803×IEM E301` ve `ERAD RPM×tork×2π/60` değerleridir.
+- 30/60/120 saniyelik kayıt sonunda örnek sayısı/Hz/aralık, bias, MAE, RMSE,
+  maksimum fark, korelasyon, doğrusal ölçek/ofset ve ±2 saniye içindeki tahmini
+  gecikme raporlanır. Sabit sürüş eşleşme kanıtı sayılmaz; testte hızlanma,
+  sabit hız ve rejenerasyon/yavaşlama bulunmalıdır.
+- Rapor `comparison_YYYYMMDD_HHMMSS.txt`, ham kayıtlar CSV/JSONL olarak
+  `Download/EX30SensorLab` altına yazılır. Fiziksel EX30 testi henüz yapılmadı.
+- Doğrulama: `testDebugUnitTest`, `lintDebug`, `assembleDebug` ve 8 Python testi
+  geçti. Gecikme tespiti ile ters güç işareti regresyonu için iki yeni JVM testi
+  eklendi.
+- Dahili test sürümü `1.0.19` / `versionCode 23`.
+
 ## 2026-09-15 Car Scanner sürüş kaydı / HCI yakalama
 
 - Kullanıcı yaklaşık 10 dakikalık sürüşten sonra Honor AGM3-W09HN tableti

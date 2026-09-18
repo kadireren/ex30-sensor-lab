@@ -31,6 +31,8 @@ import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
+import com.kadireren.ex30sensorlab.comparison.ComparisonAnalyzer
+import com.kadireren.ex30sensorlab.comparison.ComparisonSignal
 import com.kadireren.ex30sensorlab.discovery.CalibrationCandidate
 import com.kadireren.ex30sensorlab.discovery.CalibrationPhase
 import com.kadireren.ex30sensorlab.discovery.CalibrationScorer
@@ -55,6 +57,7 @@ import com.kadireren.ex30sensorlab.obd.ElmProtocol
 import com.kadireren.ex30sensorlab.obd.ElmConnectionEvent
 import com.kadireren.ex30sensorlab.obd.ObdDeviceEntry
 import com.kadireren.ex30sensorlab.obd.ObdCatalog
+import com.kadireren.ex30sensorlab.obd.ObdDecoders
 import com.kadireren.ex30sensorlab.obd.ObdPollingController
 import com.kadireren.ex30sensorlab.obd.ObdPreferredDevice
 import com.kadireren.ex30sensorlab.scanner.ScanProfileParser
@@ -71,12 +74,15 @@ import com.kadireren.ex30sensorlab.vhal.SafetyState
 import com.kadireren.ex30sensorlab.vhal.VhalCatalog
 import com.kadireren.ex30sensorlab.vhal.VhalProbe
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import java.util.concurrent.Executors
 import kotlin.math.abs
 
 class MainActivity : Activity() {
     private enum class ObdConnectionState { DISCONNECTED, CONNECTING, CONNECTED, ERROR }
-    private enum class Page { AAOS, OBD, SENSORS, DRIVE, MOTOR, SCANNER }
+    private enum class Page { AAOS, OBD, SENSORS, DRIVE, COMPARISON, MOTOR, SCANNER }
 
     private var car: Car? = null
     private var carPropertyManager: CarPropertyManager? = null
@@ -105,6 +111,9 @@ class MainActivity : Activity() {
     private var pendingLaunchAutoConnect = true
     private var preferredDiscoveryActive = false
     private val autoConnectHandler = Handler(Looper.getMainLooper())
+    private val comparisonHandler = Handler(Looper.getMainLooper())
+    private var comparisonStopAction: (() -> Unit)? = null
+    private var comparisonPollingOverride = false
     private var sensorListAdapter: SensorListAdapter? = null
     private val statusRefreshHandler = Handler(Looper.getMainLooper())
     private val statusRefresh = object : Runnable {
@@ -152,6 +161,7 @@ class MainActivity : Activity() {
             Page.OBD -> showObd()
             Page.SENSORS -> showSensorSelection()
             Page.DRIVE -> showDriveView()
+            Page.COMPARISON -> showComparisonTest()
             Page.MOTOR -> showMotorSensors()
             Page.SCANNER -> showHome()
         }
@@ -248,6 +258,7 @@ class MainActivity : Activity() {
         }
         row2.addView(menuCard("3", t("Ekran Sensörleri", "Display Sensors"), t("VHAL ve OBD görünürlüğünü seç", "Choose VHAL and OBD visibility")) { showSensorSelection() }, menuCardLayoutParams())
         row2.addView(menuCard("4", t("Sürüş Görünümü", "Drive View"), t("Tam ekran · yoğun sensör ızgarası", "Full screen · dense sensor grid")) { showDriveView() }, menuCardLayoutParams(dp(16)))
+        row2.addView(menuCard("5", t("VHAL–OBD Testi", "VHAL–OBD Test"), t("Hız ve güç eşleştirme raporu", "Speed and power matching report")) { showComparisonTest() }, menuCardLayoutParams(dp(16)))
         root.addView(row2, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
         val homeActions = controlRow().apply { setPadding(dp(20), dp(5), dp(20), dp(5)) }
         homeActions.addView(homeActionButton(t("OBD'ye bağlan", "Connect OBD"), color(R.color.lab_accent), color(R.color.lab_accent_surface)) {
@@ -491,6 +502,277 @@ class MainActivity : Activity() {
         } else if (manager == null) {
             status.text = t("VHAL ve OBD verisi yok", "No VHAL or OBD data")
         }
+    }
+
+    private fun showComparisonTest() {
+        stopScreenResources()
+        currentPage = Page.COMPARISON
+        driveStatusView = null
+
+        val liveAnalyzer = ComparisonAnalyzer()
+        var testAnalyzer: ComparisonAnalyzer? = null
+        var testStartedMs = 0L
+        var testEndsMs = 0L
+        val derivedInputs = mutableMapOf<String, Pair<Long, Double>>()
+        val lastDerivedTimestamp = mutableMapOf<ComparisonSignal, Long>()
+
+        val root = baseScreen(
+            t("VHAL–OBD Karşılaştırma Testi", "VHAL–OBD Comparison Test"),
+            comparisonConnectionText(),
+            true,
+        )
+        val status = root.getChildAt(0).findViewWithTag<TextView>("status")
+        val controls = controlRow()
+        val durationSeconds = listOf(30, 60, 120)
+        val durationSpinner = Spinner(this).apply {
+            adapter = object : ArrayAdapter<String>(
+                this@MainActivity,
+                android.R.layout.simple_spinner_item,
+                durationSeconds.map { t("$it saniye", "$it seconds") },
+            ) {
+                override fun getView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    (super.getView(position, convertView, parent) as TextView).apply {
+                        setTextColor(color(R.color.lab_text))
+                        textSize = 16f
+                        setPadding(dp(12), dp(8), dp(12), dp(8))
+                    }
+
+                override fun getDropDownView(position: Int, convertView: View?, parent: ViewGroup): View =
+                    (super.getDropDownView(position, convertView, parent) as TextView).apply {
+                        setTextColor(color(R.color.lab_text))
+                        setBackgroundColor(color(R.color.lab_surface))
+                        setPadding(dp(14), dp(12), dp(14), dp(12))
+                    }
+            }
+            setSelection(1)
+        }
+        controls.addView(durationSpinner, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 0.7f).apply { marginEnd = dp(8) })
+        lateinit var startButton: Button
+        lateinit var stopButton: Button
+        startButton = actionButton(t("Testi başlat", "Start test")) {}
+        stopButton = actionButton(t("Bitir ve raporla", "Finish and report")) {}
+        stopButton.isEnabled = false
+        controls.addView(startButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply { marginEnd = dp(8) })
+        controls.addView(stopButton, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        root.addView(controls)
+
+        val liveView = label("", 16f, color(R.color.lab_text)).apply {
+            setPadding(dp(14), dp(12), dp(14), dp(12))
+            background = rounded(color(R.color.lab_surface), color(R.color.lab_accent), dp(12))
+        }
+        val reportView = label(
+            t(
+                "Bağlantılar hazır olduğunda süreyi seçip testi başlatın. Güvenli bir güzergahta hızlanma, sabit hız ve rejenerasyon/yavaşlama örnekleri oluşturun; sürüş sırasında ekrana dokunmayın.",
+                "When both connections are ready, choose a duration and start. On a safe route include acceleration, steady speed and regeneration/deceleration; do not touch the screen while driving.",
+            ),
+            14f,
+            color(R.color.lab_text_secondary),
+        ).apply { setPadding(dp(14), dp(12), dp(14), dp(12)) }
+        root.addView(ScrollView(this).apply {
+            addView(LinearLayout(this@MainActivity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(dp(18), dp(4), dp(18), dp(12))
+                addView(liveView)
+                addView(reportView)
+            })
+        }, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
+        setContentView(root)
+
+        fun add(signal: ComparisonSignal, timestampMs: Long, value: Double) {
+            liveAnalyzer.add(signal, timestampMs, value)
+            testAnalyzer?.add(signal, timestampMs, value)
+        }
+
+        fun addDerived(signal: ComparisonSignal, timestampMs: Long, value: Double) {
+            if (lastDerivedTimestamp[signal] == timestampMs) return
+            lastDerivedTimestamp[signal] = timestampMs
+            add(signal, timestampMs, value)
+        }
+
+        fun updateDerivedPower() {
+            val voltage = derivedInputs["hv_voltage"]
+            val iemCurrent = derivedInputs["iem_hv_current"]
+            if (voltage != null && iemCurrent != null && abs(voltage.first - iemCurrent.first) <= 1_500L) {
+                addDerived(
+                    ComparisonSignal.OBD_IEM_POWER,
+                    maxOf(voltage.first, iemCurrent.first),
+                    voltage.second * iemCurrent.second / 1000.0,
+                )
+            }
+            val rpm = derivedInputs["erad_motor_speed"]
+            val torque = derivedInputs["erad_actual_torque"]
+            if (rpm != null && torque != null && abs(rpm.first - torque.first) <= 1_000L) {
+                addDerived(
+                    ComparisonSignal.OBD_MECHANICAL_POWER,
+                    maxOf(rpm.first, torque.first),
+                    rpm.second * torque.second * 2.0 * Math.PI / 60_000.0,
+                )
+            }
+        }
+
+        fun obdValue(sample: SensorSample, did: String, decode: (String) -> Double): Double? =
+            ObdDecoders.extractData(sample.rawValue, did)?.let { runCatching { decode(it) }.getOrNull() }
+
+        fun accept(sample: SensorSample) {
+            if (sample.status != SampleStatus.LIVE) return
+            val timestamp = sample.monotonicTimestampMs
+            when (sample.definition.source) {
+                SensorSource.VHAL -> when (sample.definition.key) {
+                    "PERF_VEHICLE_SPEED_DISPLAY" -> sample.rawValue.toDoubleOrNull()?.let {
+                        add(ComparisonSignal.VHAL_DISPLAY_SPEED, timestamp, it * 3.6)
+                    }
+                    "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE" -> sample.rawValue.toDoubleOrNull()?.let {
+                        add(ComparisonSignal.VHAL_RAW_POWER, timestamp, it / 1_000_000.0)
+                    }
+                    else -> Unit
+                }
+                SensorSource.OBD -> when (sample.definition.key) {
+                    "vehicle_speed" -> obdValue(sample, "F40D") { it.take(2).toInt(16).toDouble() }?.let { add(ComparisonSignal.OBD_VEHICLE_SPEED, timestamp, it) }
+                    "wheel_fl" -> obdValue(sample, "2B06") { it.take(2).toInt(16).toDouble() }?.let { add(ComparisonSignal.OBD_WHEEL_FL, timestamp, it) }
+                    "wheel_fr" -> obdValue(sample, "2B07") { it.take(2).toInt(16).toDouble() }?.let { add(ComparisonSignal.OBD_WHEEL_FR, timestamp, it) }
+                    "wheel_rl" -> obdValue(sample, "2B08") { it.take(2).toInt(16).toDouble() }?.let { add(ComparisonSignal.OBD_WHEEL_RL, timestamp, it) }
+                    "wheel_rr" -> obdValue(sample, "2B09") { it.take(2).toInt(16).toDouble() }?.let { add(ComparisonSignal.OBD_WHEEL_RR, timestamp, it) }
+                    "hv_power" -> Regex("[-+]?\\d+(?:\\.\\d+)?").find(sample.displayValue)?.value?.toDoubleOrNull()?.let {
+                        add(ComparisonSignal.OBD_BECM_POWER, timestamp, it)
+                    }
+                    "hv_voltage" -> obdValue(sample, "4803") { it.take(4).toInt(16) / 100.0 }?.let { derivedInputs["hv_voltage"] = timestamp to it }
+                    "iem_hv_current" -> obdValue(sample, "E301") { (it.take(4).toInt(16) - 8188) / 10.0 }?.let { derivedInputs["iem_hv_current"] = timestamp to it }
+                    "erad_motor_speed" -> obdValue(sample, "E303") { (it.take(4).toInt(16) - 16384).toDouble() }?.let { derivedInputs["erad_motor_speed"] = timestamp to it }
+                    "erad_actual_torque" -> obdValue(sample, "E304") { (it.take(4).toInt(16) - 8188).toDouble() }?.let { derivedInputs["erad_actual_torque"] = timestamp to it }
+                    else -> Unit
+                }
+                SensorSource.SCANNER -> Unit
+            }
+            updateDerivedPower()
+        }
+
+        fun latestText(signal: ComparisonSignal, reference: ComparisonSignal? = null): String {
+            val point = liveAnalyzer.latest(signal) ?: return "${signal.labelTr}: —"
+            val age = (SystemClock.elapsedRealtime() - point.timestampMs).coerceAtLeast(0L)
+            val difference = reference?.let { liveAnalyzer.latest(it) }?.let { " · Δ ${String.format(Locale.US, "%+.1f", point.value - it.value)}" }.orEmpty()
+            val label = if (uiLanguage == UiLanguage.ENGLISH) signal.labelEn else signal.labelTr
+            return "$label: ${String.format(Locale.US, "%.2f", point.value)} ${signal.unit}$difference · ${age} ms"
+        }
+
+        fun refreshLive() {
+            val remaining = (testEndsMs - SystemClock.elapsedRealtime()).coerceAtLeast(0L) / 1000.0
+            liveView.text = buildString {
+                if (testAnalyzer != null) appendLine(t("● KAYIT · kalan ${String.format(Locale.US, "%.1f", remaining)} sn", "● RECORDING · ${String.format(Locale.US, "%.1f", remaining)} s left"))
+                else appendLine(t("CANLI KARŞILAŞTIRMA", "LIVE COMPARISON"))
+                appendLine()
+                appendLine(latestText(ComparisonSignal.VHAL_DISPLAY_SPEED))
+                appendLine(latestText(ComparisonSignal.OBD_VEHICLE_SPEED, ComparisonSignal.VHAL_DISPLAY_SPEED))
+                appendLine(latestText(ComparisonSignal.OBD_WHEEL_FL, ComparisonSignal.VHAL_DISPLAY_SPEED))
+                appendLine(latestText(ComparisonSignal.OBD_WHEEL_FR, ComparisonSignal.VHAL_DISPLAY_SPEED))
+                appendLine(latestText(ComparisonSignal.OBD_WHEEL_RL, ComparisonSignal.VHAL_DISPLAY_SPEED))
+                appendLine(latestText(ComparisonSignal.OBD_WHEEL_RR, ComparisonSignal.VHAL_DISPLAY_SPEED))
+                appendLine()
+                appendLine(latestText(ComparisonSignal.VHAL_RAW_POWER))
+                appendLine(latestText(ComparisonSignal.OBD_BECM_POWER, ComparisonSignal.VHAL_RAW_POWER))
+                appendLine(latestText(ComparisonSignal.OBD_IEM_POWER, ComparisonSignal.VHAL_RAW_POWER))
+                append(latestText(ComparisonSignal.OBD_MECHANICAL_POWER, ComparisonSignal.VHAL_RAW_POWER))
+            }
+            status.text = if (testAnalyzer != null) t("● Test kaydediliyor", "● Recording test") else comparisonConnectionText()
+        }
+
+        fun finishTest(showDialog: Boolean) {
+            val analyzer = testAnalyzer ?: return
+            val duration = (SystemClock.elapsedRealtime() - testStartedMs).coerceAtLeast(1L)
+            testAnalyzer = null
+            logger?.close()
+            val rawFiles = listOfNotNull(logger?.csvFile, logger?.jsonlFile).filter { it.isFile }
+            val report = analyzer.report(duration, uiLanguage == UiLanguage.ENGLISH)
+            reportView.text = report
+            startButton.isEnabled = true
+            stopButton.isEnabled = false
+            status.text = t("● Test tamamlandı · rapor hazırlanıyor", "● Test complete · preparing report")
+            val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+            ioExecutor.execute {
+                try {
+                    val reportFile = DownloadStorage.writeText(this, "comparison_$stamp.txt", report)
+                    val exportedRaw = rawFiles.map { DownloadStorage.exportFile(this, it) }
+                    runOnUiThread {
+                        val location = reportFile.absolutePath.ifBlank { "${reportFile.folderPath}/${reportFile.name}" }
+                        status.text = t("● Rapor kaydedildi: $location", "● Report saved: $location")
+                        if (showDialog && currentPage == Page.COMPARISON) {
+                            showScrollableHelpDialog(t("Karşılaştırma sonucu", "Comparison result"), report)
+                        }
+                        if (exportedRaw.isNotEmpty()) toast(t("Rapor + ${exportedRaw.size} ham kayıt Download'a yazıldı", "Report + ${exportedRaw.size} raw logs written to Downloads"))
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread { status.text = "${t("Rapor yazılamadı", "Could not write report")}: ${error.message}" }
+                }
+            }
+        }
+
+        comparisonStopAction = { finishTest(false) }
+        stopButton.setOnClickListener { finishTest(true) }
+        startButton.setOnClickListener {
+            if (carPropertyManager == null) {
+                toast(t("VHAL hazır değil", "VHAL is not ready"))
+                return@setOnClickListener
+            }
+            if (obdConnectionState != ObdConnectionState.CONNECTED) {
+                toast(t("Önce OBD adaptörüne bağlanın", "Connect the OBD adapter first"))
+                tryConnectPreferredObd(returnTo = { showComparisonTest() }, showListOnFailure = true, statusOverride = status)
+                return@setOnClickListener
+            }
+            testAnalyzer = ComparisonAnalyzer()
+            derivedInputs.clear()
+            lastDerivedTimestamp.clear()
+            testStartedMs = SystemClock.elapsedRealtime()
+            testEndsMs = testStartedMs + durationSeconds[durationSpinner.selectedItemPosition] * 1000L
+            logger?.close()
+            logger = SessionLogger(this).also { it.start("comparison") }
+            startButton.isEnabled = false
+            stopButton.isEnabled = true
+            reportView.text = t("Test sürüyor. Hızlanma, sabit hız ve rejenerasyon/yavaşlama örneği oluşturun.", "Test running. Include acceleration, steady speed and regeneration/deceleration.")
+            val scheduledAnalyzer = testAnalyzer
+            comparisonHandler.postDelayed({
+                if (testAnalyzer === scheduledAnalyzer) finishTest(true)
+            }, testEndsMs - testStartedMs)
+        }
+
+        val refreshRunnable = object : Runnable {
+            override fun run() {
+                if (currentPage != Page.COMPARISON) return
+                refreshLive()
+                comparisonHandler.postDelayed(this, COMPARISON_REFRESH_MS)
+            }
+        }
+        comparisonHandler.post(refreshRunnable)
+
+        carPropertyManager?.let { manager ->
+            vhalReader = AndroidVhalReader(manager) { powerMultiplier() }.also { reader ->
+                reader.start(
+                    onSample = { sample ->
+                        if (sample.definition.key in COMPARISON_VHAL_KEYS) {
+                            logger?.append(sample)
+                            runOnUiThread { accept(sample) }
+                        }
+                    },
+                    onSafety = { safetyState = it },
+                )
+            }
+        }
+        if (obdConnectionState == ObdConnectionState.CONNECTED) {
+            comparisonPollingOverride = true
+            obdPolling?.setEnabledKeys(COMPARISON_OBD_KEYS)
+            obdSampleSink = { sample ->
+                if (sample.definition.key in COMPARISON_OBD_RESULT_KEYS) {
+                    accept(sample)
+                }
+            }
+            obdStateSink = { if (testAnalyzer == null) status.text = it }
+            ensureObdPolling(forceRestart = true)
+            obdPolling?.setEnabledKeys(COMPARISON_OBD_KEYS)
+        }
+    }
+
+    private fun comparisonConnectionText(): String = when {
+        carPropertyManager != null && obdConnectionState == ObdConnectionState.CONNECTED -> t("● VHAL + OBD hazır", "● VHAL + OBD ready")
+        carPropertyManager == null -> t("○ VHAL hazır değil", "○ VHAL not ready")
+        else -> t("○ OBD bağlı değil", "○ OBD not connected")
     }
 
     private fun showDriveLayoutPicker(adapter: DriveSensorAdapter, button: Button?) {
@@ -1340,6 +1622,13 @@ class MainActivity : Activity() {
     }
 
     private fun stopScreenResources() {
+        comparisonHandler.removeCallbacksAndMessages(null)
+        comparisonStopAction?.invoke()
+        comparisonStopAction = null
+        if (comparisonPollingOverride) {
+            obdPolling?.setEnabledKeys(visibleSensorKeys(SensorSource.OBD))
+            comparisonPollingOverride = false
+        }
         sensorListAdapter = null
         stopStatusRefresh()
         deviceScanner?.stopDiscovery()
@@ -1615,6 +1904,7 @@ class MainActivity : Activity() {
                 "1" -> t("VHAL SENSÖRLERİ  →", "VHAL SENSORS  →")
                 "2" -> t("CANLI OKUMA  →", "LIVE DATA  →")
                 "3" -> t("YALNIZ ARAÇ SABİTKEN  →", "ONLY WHILE PARKED  →")
+                "5" -> t("KAYDET VE KIYASLA  →", "RECORD AND COMPARE  →")
                 else -> t("BÜYÜK VE SADE  →", "LARGE AND SIMPLE  →")
             }, 10f, tileColor).apply {
                 setTypeface(typeface, Typeface.BOLD)
@@ -2085,6 +2375,24 @@ Not: Kayıt kişisel veri içerebilir; ham bugreport'u herkese açık paylaşmay
         private const val REQUEST_PROFILE = 1002
         private const val SWIPE_MIN_VELOCITY = 250f
         private const val PREFERRED_DISCOVERY_TIMEOUT_MS = 10_000L
+        private const val COMPARISON_REFRESH_MS = 200L
+        private val COMPARISON_VHAL_KEYS = setOf(
+            "PERF_VEHICLE_SPEED_DISPLAY",
+            "EV_BATTERY_INSTANTANEOUS_CHARGE_RATE",
+        )
+        private val COMPARISON_OBD_KEYS = setOf(
+            "vehicle_speed",
+            "wheel_fl",
+            "wheel_fr",
+            "wheel_rl",
+            "wheel_rr",
+            "hv_voltage",
+            "hv_current",
+            "iem_hv_current",
+            "erad_motor_speed",
+            "erad_actual_torque",
+        )
+        private val COMPARISON_OBD_RESULT_KEYS = COMPARISON_OBD_KEYS + "hv_power"
         private val SWIPE_PAGES = listOf(Page.AAOS, Page.OBD, Page.SENSORS, Page.DRIVE)
     }
 }

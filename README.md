@@ -21,6 +21,11 @@ uygulaması.
   Car Scanner sensör grubu ilk kurulumda kapalıdır; ihtiyaç olanlar buradan açılır.
 - **Motor sensörleri:** EX30'da canlı doğrulanmış gaz PWM, ERAD motor devri ve
   tork DID değerleri OBD listesinde yer alır.
+- **VHAL–OBD Testi:** VHAL gösterge hızını OBD `F40D` ve dört teker hızıyla;
+  ham VHAL batarya gücünü BECM elektrik gücü, IEM elektrik gücü adayı ve ERAD
+  mekanik gücüyle aynı anda kaydeder. 30/60/120 saniyelik test sonunda fark,
+  korelasyon, ölçek/ofset ve tahmini gecikme raporu ile ham CSV/JSONL dosyalarını
+  `Download/EX30SensorLab` altına yazar.
 - **Ana menü:** OBD'ye bağlan (Android-Vlink öncelikli), Diğer cihazlar, OBD
   kes, uygulamadan çıkış.
 
