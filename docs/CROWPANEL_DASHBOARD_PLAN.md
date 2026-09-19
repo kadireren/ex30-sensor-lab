@@ -31,6 +31,28 @@ Elecrow CrowPanel Advance 7" ESP32-S3
 - İlk geliştirme Windows bilgisayarda veya USB-A → USB-C dönüştürücü/hub ile
   Mac mini/MacBook üzerinde yapılabilir.
 
+Donanım kimliği karıştırılmamalıdır: eldeki ürün **7 inç 800×480 CrowPanel
+Advance** modelidir. Başka bir konuşmada geçen 7,86 inç 400×1280 panel için
+yapılan çözünürlük ve görüntü kalitesi yorumu bu karta ait değildir.
+
+## Sensor Lab saha sonuçlarının göstergeye etkisi
+
+2026-09-18 fiziksel EX30 VHAL–OBD karşılaştırması, bağımsız panelde hangi
+kaynağın nasıl sunulacağını netleştirdi:
+
+- **Gerçek araç hızı:** ECU-E `F40D`. Araçtaki gösterge hızını taklit etmek
+  istenirse saha regresyonu `gösterge ≈ 1,028 × F40D + 1,729 km/h` olarak ayrı
+  bir görüntü seçeneği şeklinde uygulanabilir. Ham `F40D` değeri korunmalıdır.
+- **Batarya gücü:** BECM `4803×4802`. VHAL ile karşılaştırmada katsayı `1,000`,
+  korelasyon `0,960` bulundu; bu bağımsız panelin ana güç kaynağı olacaktır.
+- **Motor mekanik gücü:** ECU-F `E303` RPM ve `E304` torktan hesaplanır.
+  Batarya gücüyle aynı ad veya aynı değer altında gösterilmemeli; ayrı bir
+  “ERAD mekanik güç” sensörü olmalıdır.
+- **Zamanlama:** BLE/ELM sorguları sıralı olduğundan hızlı sensörler küçük bir
+  ECU grubunda tutulmalı. Ekran 30–60 FPS çizilebilir fakat sensör değerleri
+  yalnız yeni OBD cevabı geldiğinde güncellenmeli; arada son değer ve veri yaşı
+  gösterilmelidir.
+
 ## Doğrulanmış BLE taşıması
 
 Sensor Lab'in 2026-09-13 Mac saha testinde iCar Pro 2S ile aşağıdaki BLE yolu
@@ -177,6 +199,36 @@ değiştirilecektir.
 
 İlk grafik geliştirmesi OBD olmadan demo veri üreticisiyle yapılacaktır. Böylece
 animasyon, tipografi ve sayfa geçişleri masa başında tamamlanabilir.
+
+Gece kullanımı için gerçek arka ışık PWM kontrolü hedeflenmelidir. Tam siyah
+zemin, sıcak gri/amber ikincil yazılar ve düşük parlaklık profili hazırlanmalı;
+yalnız ekrana yarı saydam siyah katman çizmek arka ışığı azaltmaz. Mat,
+yansıma önleyici film araç içindeki yansımalar için sonradan değerlendirilebilir.
+
+## İsteğe bağlı VHAL/UDP genişletmesi
+
+MVP doğrudan OBD–BLE çalışacaktır. İleride yalnız VHAL'de bulunan veya daha
+hızlı gelen değerler gerekirse Sensor Lab, AAOS içinde bir köprü olarak UDP
+yayını yapabilir:
+
+```text
+EX30 VHAL → araçtaki Sensor Lab → Wi-Fi/UDP → CrowPanel ESP32-S3
+EX30 OBD  → IOS-Vlink BLE ─────────────────→ CrowPanel ESP32-S3
+```
+
+ESP32-S3 Wi-Fi üzerinden UDP dinleyebilir; internet gerekmez, iki cihazın aynı
+yerel ağda olması yeterlidir. Canlı telemetride paket kaybı yeni paketin kısa
+süre sonra gelmesiyle tolere edilebilir. Bu yol VHAL'a doğrudan dışarıdan erişim
+değildir: `CarPropertyManager` yalnız araçtaki AAOS uygulamasında çalışır ve
+uygulamanın izin verilmeyen `ENGINE_RPM` gibi property'leri yine okuyamaz.
+Köprü uygulaması kapanır veya AAOS arka plan çalışmasını durdurursa VHAL akışı
+kesilir; bu nedenle OBD doğrudan yol temel ve bağımsız kaynak olarak kalır.
+
+Raspberry Pi + yüksek çözünürlüklü HDMI/DSI panel; veri kaydı, grafik ve daha
+karmaşık animasyonlar gerekirse alternatif platformdur. Buna karşılık daha uzun
+açılış süresi, daha yüksek tüketim, güvenli kapatma ve araç içi soğutma gerektirir.
+Mevcut kapsam yalnız hız/güç/SOC/RPM/tork göstergesi olduğu için CrowPanel ile
+başlamak daha basit ve düşük güç tüketimli seçimdir.
 
 ## Uygulama aşamaları
 

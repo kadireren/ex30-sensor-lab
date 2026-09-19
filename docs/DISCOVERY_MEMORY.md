@@ -1,6 +1,6 @@
 # EX30 Keşif Hafızası — Sensor Lab + Dashboard + Driver Display
 
-Son güncelleme: 2026-09-16
+Son güncelleme: 2026-09-18
 
 Bu dosya, üç ilgili repodaki **kanıtlanmış**, **denenen** ve **başarısız** bulguların
 tek referans özetidir. Sanal motor sesi / gaz / RPM aramasında önce buraya bak.
@@ -214,7 +214,7 @@ Sensor Lab'de sonradan ECU-F `E303` ERAD motor devri doğrulandı.
 
 ## 4. EX30 Sensor Lab — ne başardık
 
-### Uygulama (güncel sürüm 1.0.16 / versionCode 20)
+### Uygulama (güncel sürüm 1.0.19 / versionCode 23)
 
 | Alan | Durum |
 |------|--------|
@@ -227,6 +227,29 @@ Sensor Lab'de sonradan ECU-F `E303` ERAD motor devri doğrulandı.
 | Log / export | CSV/JSONL; Download/EX30SensorLab (user 10 yolları, 1.0.10) |
 | Python | `extract_hci_profile.py` (+ unittest); `extract_snooz_profile.py` (Car Scanner binary) |
 | Test | Android unit test, lint, assembleDebug; Python araç testleri |
+
+### 2026-09-18 fiziksel EX30 VHAL–OBD karşılaştırma sonucu
+
+Sensor Lab `1.0.19` içindeki karşılaştırma ekranı fiziksel araçta kullanıldı.
+Kullanıcının paylaştığı sonuç ekranlarından okunabilen, bu repoda korunması
+gereken saha sonuçları:
+
+| Karşılaştırma | Saha sonucu | Yorum |
+|---------------|-------------|-------|
+| VHAL gösterge hızı ↔ ECU-E `F40D` | `VHAL ≈ 1,028 × OBD + 1,729 km/h` | `F40D` fiziksel araç hızına, VHAL değeri sürücüye gösterilen ve yukarı kalibre edilmiş hıza daha yakındır. Araç ekranını taklit etmek için kalibre edilmiş değer; bağımsız gerçek hız için ham `F40D` kullanılabilir. |
+| VHAL ham batarya gücü ↔ BECM `4803×4802` | Katsayı `1,000`, korelasyon `0,960`; gözlenen fark çoğunlukla yaklaşık `1–2 kW` | BECM voltaj × akım, OBD tarafındaki en güçlü batarya güç karşılığıdır. Kalan fark sıralı OBD sorgusu, zaman eşleme ve VHAL filtrelemesini içerir. |
+| VHAL batarya gücü ↔ ERAD `E303×E304` mekanik güç | Bire bir eşleşme beklenmez | ERAD RPM×tork motorun mekanik gücüdür; VHAL/BECM ise batarya tarafındaki elektriksel gücü temsil eder. İnverter, motor ve aktarma kayıpları fiziksel fark oluşturur. |
+
+Bu sonuçlar karşılaştırma raporunun özet ekranlarından aktarılmıştır; örnek
+sayıları, MAE/RMSE, gecikme ve tam aralık değerleri paylaşımda metin olarak
+bulunmadığı için burada uydurulmadı. Gelecekte `comparison_*.txt` ile ham
+CSV/JSONL dosyaları alınırsa bu tablo tam metriklerle genişletilmelidir.
+
+Testin ölçüm sınırı: VHAL yaklaşık 10 Hz akabilirken BLE/ELM OBD sorguları
+sıralıdır ve etkin hız sensör/ECU sayısına göre çok daha düşük olabilir.
+Hızlanma veya rejenerasyon sırasında aynı zaman damgasına en yakın iki örnek
+tam olarak aynı fiziksel an olmayabilir. Korelasyon tek başına eş anlam kanıtı
+değildir; katsayı, ofset, hata ve sinyalin fiziksel kaynağı birlikte değerlendirilir.
 
 ### Araçta kanıtlanan OBD (ekran görüntüleri, ~Eylül 2026)
 

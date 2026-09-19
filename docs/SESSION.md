@@ -1,6 +1,6 @@
 # EX30 Sensor Lab — Devam Notu
 
-Son güncelleme: 2026-09-17
+Son güncelleme: 2026-09-18
 
 ## 2026-09-17 ses sensörleri 10 Hz saha denemesi
 
@@ -74,7 +74,7 @@ Son güncelleme: 2026-09-17
 **Keşif hafızası:** VHAL/OBD/HCI, dashboard sanal ses denemeleri ve referans repo
 bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
 
-## 2026-09-18 geçici VHAL–OBD karşılaştırma testi
+## 2026-09-18 VHAL–OBD karşılaştırma testi ve ilk saha sonucu
 
 - Ana menüye `VHAL–OBD Testi` ekranı eklendi. Ekran yalnız karşılaştırma için
   gereken kanalları canlı gösterir ve OBD polling kapsamını ekran açıkken geçici
@@ -89,7 +89,17 @@ bulgularının tek özeti → [`DISCOVERY_MEMORY.md`](DISCOVERY_MEMORY.md).
   gecikme raporlanır. Sabit sürüş eşleşme kanıtı sayılmaz; testte hızlanma,
   sabit hız ve rejenerasyon/yavaşlama bulunmalıdır.
 - Rapor `comparison_YYYYMMDD_HHMMSS.txt`, ham kayıtlar CSV/JSONL olarak
-  `Download/EX30SensorLab` altına yazılır. Fiziksel EX30 testi henüz yapılmadı.
+  `Download/EX30SensorLab` altına yazılır.
+- Fiziksel EX30 testi yapıldı. Paylaşılan sonuç ekranlarında hız kalibrasyonu
+  `VHAL ≈ 1,028 × F40D + 1,729 km/h` çıktı. Bu, VHAL gösterge hızının OBD
+  fiziksel hızından sistematik biçimde yüksek olduğunu gösteriyor.
+- BECM `4803×4802` ile VHAL ham batarya gücü karşılaştırmasında katsayı
+  `1,000`, korelasyon `0,960`; fark çoğunlukla yaklaşık `1–2 kW` görüldü.
+  BECM hesabı OBD tarafındaki ana batarya güç kaynağı olarak doğrulandı.
+- ERAD `E303×E304×2π/60` mekanik güçtür; batarya tarafındaki elektriksel
+  VHAL/BECM gücüyle bire bir eşleşmesi beklenmez. Tam rapor dosyaları repoda
+  bulunmadığından örnek sayısı, MAE/RMSE ve gecikme değerleri belgeye tahmin
+  edilerek eklenmedi.
 - Doğrulama: `testDebugUnitTest`, `lintDebug`, `assembleDebug` ve 8 Python testi
   geçti. Gecikme tespiti ile ters güç işareti regresyonu için iki yeni JVM testi
   eklendi.
